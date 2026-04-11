@@ -1,11 +1,11 @@
 [
   {
-    "name": "N-TILT",
-    "author": "Nasko",
-    "path": "Plugins/N-TILT.zip",
-    "patch": "N-TILT.pd",
-    "formats": ["VST3", "AU", "LV2", "CLAP", "Standalone"],
-    "type": "fx",
+    "name": "MoogSynth",
+    "author": "DeinName",
+    "path": "Plugins/_main.pd",
+    "patch": "_main.pd",
+    "formats": ["VST3", "AU", "CLAP"],
+    "type": "instrument",
     "version": "1.0.0",
     "enable_gem": false,
     "enable_sfizz": false,
