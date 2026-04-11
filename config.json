@@ -1,8 +1,8 @@
-[
+ [
   {
     "name": "MoogSynth",
     "author": "DeinName",
-    "path": "Plugins/_main.pd",
+    "path": "Plugins",
     "patch": "_main.pd",
     "formats": ["VST3", "AU", "CLAP"],
     "type": "instrument",
