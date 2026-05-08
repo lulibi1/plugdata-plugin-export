@@ -1,11 +1,11 @@
  [
   {
-    "name": "MoogSynth",
-    "author": "DeinName",
-    "path": "Plugins",
-    "patch": "_main.pd",
-    "formats": ["VST3", "AU", "CLAP"],
-    "type": "instrument",
+    "name": "VeloraReverb",
+    "author": "Velora Audio",
+    "path": "Plugins/VeloraReverb.zip",
+    "patch": "VeloraReverb.pd",
+    "formats": ["VST3"],
+    "type": "fx",
     "version": "1.0.0",
     "enable_gem": false,
     "enable_sfizz": false,
