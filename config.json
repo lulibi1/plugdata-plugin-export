@@ -2,7 +2,7 @@
   {
     "name": "VeloraReverb",
     "author": "Velora Audio",
-    "path": "Plugins/VeloraReverb.zip",
+    "path": "Plugins/VeloraReverb",
     "patch": "VeloraReverb.pd",
     "formats": ["VST3"],
     "type": "fx",
