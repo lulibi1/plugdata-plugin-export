@@ -7,6 +7,20 @@ import shutil
 import argparse
 import re
 import sys
+import io
+
+# Force UTF-8 for stdout/stderr to support emojis on all platforms
+if sys.stdout.encoding.lower() != 'utf-8':
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    else:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+if sys.stderr.encoding.lower() != 'utf-8':
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+    else:
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 parser = argparse.ArgumentParser(description="Build plugins with CMake")
 parser.add_argument(
@@ -28,6 +42,27 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# ── Dependency checks ───────────────────────────────────────────────────────
+
+def check_dependencies():
+    """Verify that required build tools are installed."""
+    missing = []
+
+    # Always check for cmake
+    if shutil.which("cmake") is None:
+        missing.append("cmake")
+
+    # Check for the selected generator
+    if args.generator == "ninja" and shutil.which("ninja") is None:
+        missing.append("ninja")
+
+    if missing:
+        print(f"❌ FATAL: Missing required build tool(s): {', '.join(missing)}")
+        print("Please install them before running this script.")
+        sys.exit(1)
+
+check_dependencies()
+
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
@@ -37,26 +72,26 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  ❌ ERROR: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  ⚠️ WARNING: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(f"❌ FATAL: config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(f"❌ FATAL: config.json is not valid JSON – {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print("❌ FATAL: config.json must contain a JSON array of plugin objects.")
         sys.exit(1)
 
     if len(data) == 0:
@@ -74,6 +109,18 @@ def validate_plugin(plugin: dict, index: int):
     elif not isinstance(name, str) or not name.strip():
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
 
+    author = plugin.get("author")
+    if not author:
+        error(f"{prefix} ({name!r}): missing required field 'author'.")
+    elif author in ["YourName", "DeinName"]:
+        warn(f"{prefix} ({name!r}): 'author' is set to placeholder '{author}'.")
+
+    patch = plugin.get("patch")
+    if not patch:
+        error(f"{prefix} ({name!r}): missing required field 'patch'.")
+    elif not isinstance(patch, str) or not patch.endswith(".pd"):
+        error(f"{prefix} ({name!r}): 'patch' must be a .pd file (got {patch!r}).")
+
     path = plugin.get("path")
     if not path:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
@@ -81,8 +128,19 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        else:
+            # Check if the patch file exists within the given path
+            if resolved.is_dir():
+                patch_path = resolved / patch
+                if not patch_path.exists():
+                    error(f"{prefix} ({name!r}): patch file '{patch}' not found in directory '{resolved}'.")
+            elif resolved.is_file():
+                # If it's a file, it's either the patch itself or a zip containing it
+                if resolved.suffix.lower() == ".pd":
+                    if resolved.name != patch:
+                        error(f"{prefix} ({name!r}): 'path' is a .pd file but its name does not match 'patch' field.")
+                elif resolved.suffix.lower() != ".zip":
+                    warn(f"{prefix} ({name!r}): plugin path is a file but not a .zip or .pd file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -114,21 +172,29 @@ def validate_plugin(plugin: dict, index: int):
 # ── Run validation ───────────────────────────────────────────────────────────
 
 plugins_config = validate_config("config.json")
+seen_names = set()
 
 for i, plugin in enumerate(plugins_config):
     if not isinstance(plugin, dict):
         error(f"Plugin[{i}]: expected an object, got {type(plugin).__name__}.")
         continue
+
+    name = plugin.get("name")
+    if name:
+        if name in seen_names:
+            error(f"Plugin[{i}] ({name!r}): duplicate plugin name found.")
+        seen_names.add(name)
+
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print("⚠️ Build warnings:")
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print("❌ Build errors – cannot continue:")
     for e in errors:
         print(e)
     sys.exit(1)
@@ -157,9 +223,10 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
-          f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+    print(f"❌ FATAL: plugdata directory not found at '{plugdata_dir}'.")
+    print(f"Make sure you're running this script from the repo root and that")
+    print(f"the plugdata submodule has been initialised:")
+    print(f"  git submodule update --init --recursive")
     sys.exit(1)
 
 for plugin in plugins_config:
@@ -222,9 +289,9 @@ for plugin in plugins_config:
             print(f"Building target: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(f"❌ Failed to build target: {target}")
             else:
-                print(f"Successfully built: {target}")
+                print(f"✅ Successfully built: {target}")
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +323,5 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+print(f"\n✨ Done! {'Configuration' if args.configure_only else 'Build'} process finished.")
