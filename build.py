@@ -7,6 +7,20 @@ import shutil
 import argparse
 import re
 import sys
+import io
+
+# Force UTF-8 for stdout/stderr to support emojis on all platforms
+if sys.stdout.encoding.lower() != 'utf-8':
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    else:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+if sys.stderr.encoding.lower() != 'utf-8':
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+    else:
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 parser = argparse.ArgumentParser(description="Build plugins with CMake")
 parser.add_argument(
