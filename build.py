@@ -37,10 +37,10 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  \033[91mERROR\033[0m: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  \033[93mWARNING\033[0m: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -75,14 +75,20 @@ def validate_plugin(plugin: dict, index: int):
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
 
     path = plugin.get("path")
+    patch = plugin.get("patch")
     if not path:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
     else:
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not resolved.is_file() and not resolved.is_dir():
+            error(f"{prefix} ({name!r}): plugin path exists but is not a file or directory: '{resolved}'")
+        elif resolved.is_dir():
+            if not patch:
+                error(f"{prefix} ({name!r}): missing required field 'patch' for directory path.")
+            elif not (resolved / patch).exists():
+                error(f"{prefix} ({name!r}): patch file '{patch}' not found in directory '{resolved}'.")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -114,11 +120,19 @@ def validate_plugin(plugin: dict, index: int):
 # ── Run validation ───────────────────────────────────────────────────────────
 
 plugins_config = validate_config("config.json")
+seen_names = set()
 
 for i, plugin in enumerate(plugins_config):
     if not isinstance(plugin, dict):
         error(f"Plugin[{i}]: expected an object, got {type(plugin).__name__}.")
         continue
+
+    name = plugin.get("name")
+    if name:
+        if name in seen_names:
+            error(f"Plugin[{i}] ({name!r}): duplicate plugin name found. Names must be unique.")
+        seen_names.add(name)
+
     validate_plugin(plugin, i)
 
 if warnings:
