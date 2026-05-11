@@ -25,6 +25,12 @@ parser.add_argument(
     action="store_true",
     help="Only run CMake configuration, skip the build step"
 )
+parser.add_argument(
+    "--config-path",
+    type=str,
+    default="config.json",
+    help="Path to the config.json file (default: config.json)"
+)
 
 args = parser.parse_args()
 
@@ -36,35 +42,46 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
+# ANSI color codes for prettier terminal output
+if sys.stdout.isatty():
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    RESET = "\033[0m"
+else:
+    RED = ""
+    YELLOW = ""
+    RESET = ""
+
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {RED}ERROR:{RESET} {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {YELLOW}WARNING:{RESET} {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
-        sys.exit(1)
+        error(f"config.json not found at '{os.path.abspath(path)}'")
+    else:
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            if not isinstance(data, list):
+                error("config.json must contain a JSON array of plugin objects.")
+            elif len(data) == 0:
+                warn("config.json contains no plugins – nothing to build.")
+            else:
+                return data
+        except json.JSONDecodeError as e:
+            error(f"config.json is not valid JSON – {e}")
 
-    try:
-        with open(path) as f:
-            data = json.load(f)
-    except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
-        sys.exit(1)
+    # If we reached here, there were fatal errors during config loading
+    print("Build errors – cannot continue:")
+    for e in errors:
+        print(e)
+    sys.exit(1)
 
-    if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
-        sys.exit(1)
-
-    if len(data) == 0:
-        warn("config.json contains no plugins – nothing to build.")
-
-    return data
-
-def validate_plugin(plugin: dict, index: int):
+def validate_plugin(plugin: dict, index: int, seen_names: set):
     prefix = f"Plugin[{index}]"
 
     # ── Required fields ──────────────────────────────────────────────────────
@@ -73,16 +90,32 @@ def validate_plugin(plugin: dict, index: int):
         error(f"{prefix}: missing required field 'name'.")
     elif not isinstance(name, str) or not name.strip():
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
+    else:
+        if name in seen_names:
+            error(f"{prefix}: plugin name {name!r} is not unique.")
+        seen_names.add(name)
 
     path = plugin.get("path")
+    patch = plugin.get("patch")
+
+    if not patch:
+        error(f"{prefix} ({name!r}): missing required field 'patch'.")
+    elif not isinstance(patch, str) or not patch.lower().endswith(".pd"):
+        error(f"{prefix} ({name!r}): 'patch' must be a .pd file (got {patch!r}).")
+
     if not path:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
     else:
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
+        elif resolved.is_dir():
+            if patch:
+                patch_path = resolved / patch
+                if not patch_path.exists():
+                    error(f"{prefix} ({name!r}): patch file '{patch}' not found in directory '{resolved}'")
         elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+            error(f"{prefix} ({name!r}): plugin path exists but is neither a file nor a directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -113,13 +146,14 @@ def validate_plugin(plugin: dict, index: int):
 
 # ── Run validation ───────────────────────────────────────────────────────────
 
-plugins_config = validate_config("config.json")
+plugins_config = validate_config(args.config_path)
+seen_plugin_names = set()
 
 for i, plugin in enumerate(plugins_config):
     if not isinstance(plugin, dict):
         error(f"Plugin[{i}]: expected an object, got {type(plugin).__name__}.")
         continue
-    validate_plugin(plugin, i)
+    validate_plugin(plugin, i, seen_plugin_names)
 
 if warnings:
     print("Build warnings:")
