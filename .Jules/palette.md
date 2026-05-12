@@ -1,0 +1,3 @@
+## 2025-05-14 - [CLI Visual Hierarchy and Colorization]
+**Learning:** Terminal-based tools often present a lot of text, making it hard for users to quickly identify critical information like errors or warnings. Using standard ANSI color codes (Red for Errors, Yellow for Warnings) significantly improves the visual hierarchy and scannability of the output. It's important to check `sys.stdout.isatty()` before applying colors to avoid polluting log files or non-interactive environments with escape codes.
+**Action:** Always implement color-coded status messages in CLI tools, ensuring they are only active in interactive TTY sessions.

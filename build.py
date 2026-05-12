@@ -36,11 +36,22 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
+# ANSI Color Codes
+RED = "\033[31m"
+YELLOW = "\033[33m"
+RESET = "\033[0m"
+
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    if sys.stdout.isatty():
+        errors.append(f"  {RED}ERROR:{RESET} {msg}")
+    else:
+        errors.append(f"  ERROR: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    if sys.stdout.isatty():
+        warnings.append(f"  {YELLOW}WARNING:{RESET} {msg}")
+    else:
+        warnings.append(f"  WARNING: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -64,7 +75,7 @@ def validate_config(path: str) -> list:
 
     return data
 
-def validate_plugin(plugin: dict, index: int):
+def validate_plugin(plugin: dict, index: int, seen_names: set):
     prefix = f"Plugin[{index}]"
 
     # ── Required fields ──────────────────────────────────────────────────────
@@ -73,16 +84,34 @@ def validate_plugin(plugin: dict, index: int):
         error(f"{prefix}: missing required field 'name'.")
     elif not isinstance(name, str) or not name.strip():
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
+    else:
+        if name in seen_names:
+            error(f"{prefix}: plugin name {name!r} is not unique.")
+        seen_names.add(name)
 
-    path = plugin.get("path")
-    if not path:
+    path_val = plugin.get("path")
+    patch_val = plugin.get("patch")
+
+    if not path_val:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
     else:
-        resolved = Path(path).resolve()
-        if not resolved.exists():
-            error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        resolved_path = Path(path_val).resolve()
+        if not resolved_path.exists():
+            error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved_path}'")
+        elif resolved_path.is_dir():
+            # If it's a directory, patch is required and must exist
+            if not patch_val:
+                error(f"{prefix} ({name!r}): 'patch' is required when 'path' is a directory.")
+            elif not patch_val.endswith(".pd"):
+                error(f"{prefix} ({name!r}): 'patch' file must have a .pd extension (got {patch_val!r}).")
+            else:
+                patch_path = resolved_path / patch_val
+                if not patch_path.exists():
+                    error(f"{prefix} ({name!r}): patch file '{patch_val}' not found in directory '{resolved_path}'.")
+        elif resolved_path.is_file():
+            # If it's a file (e.g. .zip), patch is optional but must have .pd extension if provided
+            if patch_val and not patch_val.endswith(".pd"):
+                 error(f"{prefix} ({name!r}): 'patch' file must have a .pd extension (got {patch_val!r}).")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -114,12 +143,13 @@ def validate_plugin(plugin: dict, index: int):
 # ── Run validation ───────────────────────────────────────────────────────────
 
 plugins_config = validate_config("config.json")
+seen_names = set()
 
 for i, plugin in enumerate(plugins_config):
     if not isinstance(plugin, dict):
         error(f"Plugin[{i}]: expected an object, got {type(plugin).__name__}.")
         continue
-    validate_plugin(plugin, i)
+    validate_plugin(plugin, i, seen_names)
 
 if warnings:
     print("Build warnings:")
