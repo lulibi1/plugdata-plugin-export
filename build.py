@@ -25,6 +25,12 @@ parser.add_argument(
     action="store_true",
     help="Only run CMake configuration, skip the build step"
 )
+parser.add_argument(
+    "--config-path",
+    type=str,
+    default="config.json",
+    help="Path to the JSON configuration file (default: config.json)"
+)
 
 args = parser.parse_args()
 
@@ -36,11 +42,24 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
+# ── Color helpers ──────────────────────────────────────────────────────────
+
+COLOR_RED = "\033[91m"
+COLOR_GREEN = "\033[92m"
+COLOR_YELLOW = "\033[93m"
+COLOR_BLUE = "\033[94m"
+COLOR_RESET = "\033[0m"
+
+def colorize(text, color_code):
+    if sys.stdout.isatty():
+        return f"{color_code}{text}{COLOR_RESET}"
+    return text
+
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {colorize('ERROR', COLOR_RED)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {colorize('WARNING', COLOR_YELLOW)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -75,14 +94,24 @@ def validate_plugin(plugin: dict, index: int):
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
 
     path = plugin.get("path")
+    patch = plugin.get("patch")
     if not path:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
     else:
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
+        elif resolved.is_dir():
+            if not patch:
+                error(f"{prefix} ({name!r}): 'patch' is required when 'path' is a directory.")
+            else:
+                patch_path = resolved / patch
+                if not patch_path.exists():
+                    error(f"{prefix} ({name!r}): patch file '{patch}' not found in directory '{resolved}'.")
+                elif patch_path.suffix != ".pd":
+                    error(f"{prefix} ({name!r}): patch file '{patch}' must have a .pd extension.")
         elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+            error(f"{prefix} ({name!r}): plugin path exists but is not a file or directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -113,22 +142,30 @@ def validate_plugin(plugin: dict, index: int):
 
 # ── Run validation ───────────────────────────────────────────────────────────
 
-plugins_config = validate_config("config.json")
+plugins_config = validate_config(args.config_path)
+seen_names = set()
 
 for i, plugin in enumerate(plugins_config):
     if not isinstance(plugin, dict):
         error(f"Plugin[{i}]: expected an object, got {type(plugin).__name__}.")
         continue
+
+    name = plugin.get("name")
+    if name:
+        if name in seen_names:
+            error(f"Plugin[{i}] ({name!r}): plugin name is not unique.")
+        seen_names.add(name)
+
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(colorize("Build warnings:", COLOR_YELLOW))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(colorize("Build errors – cannot continue:", COLOR_RED))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -170,7 +207,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{colorize('Processing:', COLOR_BLUE)} {name}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +239,7 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{colorize('Failed', COLOR_RED)} cmake configure for {name}")
         continue
 
     if not args.configure_only:
@@ -222,9 +259,9 @@ for plugin in plugins_config:
             print(f"Building target: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(f"{colorize('Failed', COLOR_RED)} to build target: {target}")
             else:
-                print(f"Successfully built: {target}")
+                print(f"{colorize('Successfully built:', COLOR_GREEN)} {target}")
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
