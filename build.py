@@ -25,12 +25,6 @@ parser.add_argument(
     action="store_true",
     help="Only run CMake configuration, skip the build step"
 )
-parser.add_argument(
-    "--config-path",
-    type=str,
-    default="config.json",
-    help="Path to the JSON configuration file (default: config.json)"
-)
 
 args = parser.parse_args()
 
@@ -142,20 +136,17 @@ def validate_plugin(plugin: dict, index: int):
 
 # ── Run validation ───────────────────────────────────────────────────────────
 
-plugins_config = validate_config(args.config_path)
+plugins_config = validate_config("config.json")
 seen_names = set()
 
 for i, plugin in enumerate(plugins_config):
     if not isinstance(plugin, dict):
         error(f"Plugin[{i}]: expected an object, got {type(plugin).__name__}.")
         continue
-
     name = plugin.get("name")
-    if name:
-        if name in seen_names:
-            error(f"Plugin[{i}] ({name!r}): plugin name is not unique.")
-        seen_names.add(name)
-
+    if name in seen_names:
+        error(f"Plugin[{i}] ({name!r}): plugin name is not unique.")
+    seen_names.add(name)
     validate_plugin(plugin, i)
 
 if warnings:
