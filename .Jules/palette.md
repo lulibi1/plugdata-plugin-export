@@ -1,0 +1,3 @@
+## 2025-05-15 - [Colorized CLI Output and Enhanced Validation]
+**Learning:** For CLI-based build systems, color-coded output significantly improves Developer Experience (DX) by making errors and warnings immediately visible. Compact validation logic (e.g., unique name checks) prevents common configuration pitfalls without overcomplicating the build script.
+**Action:** Always include a lightweight `clr` or `colorize` helper in Python-based build tools to highlight status transitions and failures. Ensure path validation is inclusive of both files and directories if the underlying build system supports both.
