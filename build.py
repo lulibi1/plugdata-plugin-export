@@ -233,7 +233,7 @@ for plugin in plugins_config:
             "cmake",
             "--build", str(build_dir),
             "--target", target,
-            "--config Release"
+            "--config", "Release"
         ]
         print(f"Building target: {target}")
         result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
