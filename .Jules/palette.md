@@ -1,0 +1,3 @@
+## 2025-05-14 - [Semantic CLI Coloring & Path Validation]
+**Learning:** In CLI-driven build systems, semantic coloring (Red for errors, Yellow for warnings, Blue for processing, Green for success) drastically reduces cognitive load by highlighting critical information among verbose build logs. Additionally, strictly validating "path" fields as files in audio plugin contexts is a UX anti-pattern, as VST3 and AU formats are often directory bundles.
+**Action:** Implement a lightweight `clr` helper function that respects TTY/environment variables and ensure path validations allow directories when they might represent bundle formats.
