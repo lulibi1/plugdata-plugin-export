@@ -19,7 +19,7 @@ jobs:
 
       - name: Submodule Update
         run: |
-          git config --global --add safe.directory ${{ github.workspace }}
+          git config --global --add safe.directory "*"
           git config --global url."https://bitbucket.org/".insteadOf "https://timschoen@bitbucket.org/"
           git submodule update --init --recursive
 
@@ -49,7 +49,7 @@ jobs:
 
       - name: Submodule Update
         run: |
-          git config --global --add safe.directory ${{ github.workspace }}
+          git config --global --add safe.directory "*"
           git config --global url."https://bitbucket.org/".insteadOf "https://timschoen@bitbucket.org/"
           git submodule update --init --recursive
 
@@ -89,7 +89,7 @@ jobs:
 
       - name: Submodule Update
         run: |
-          git config --global --add safe.directory ${{ github.workspace }}
+          git config --global --add safe.directory "*"
           git config --global url."https://bitbucket.org/".insteadOf "https://timschoen@bitbucket.org/"
           git submodule update --init --recursive
 
@@ -177,7 +177,7 @@ jobs:
 
       - name: Submodule Update
         run: |
-          git config --global --add safe.directory ${{ github.workspace }}
+          git config --global --add safe.directory "*"
           git config --global url."https://bitbucket.org/".insteadOf "https://timschoen@bitbucket.org/"
           git submodule update --init --recursive
 
@@ -246,7 +246,7 @@ jobs:
 
       - name: Submodule Update
         run: |
-          git config --global --add safe.directory ${{ github.workspace }}
+          git config --global --add safe.directory "*"
           git config --global url."https://bitbucket.org/".insteadOf "https://timschoen@bitbucket.org/"
           git submodule update --init --recursive
 
