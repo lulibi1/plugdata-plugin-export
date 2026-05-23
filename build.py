@@ -83,6 +83,8 @@ def validate_plugin(plugin: dict, index: int):
     path = plugin.get("path")
     if not path:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
+    elif not isinstance(path, str) or not path.strip():
+        error(f"{prefix} ({name!r}): 'path' must be a non-empty string (got {path!r}).")
     else:
         resolved = Path(path).resolve()
         if not resolved.exists():
