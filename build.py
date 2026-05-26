@@ -76,6 +76,20 @@ def validate_config(path: str) -> list:
 
     return data
 
+def patch_plugdata():
+    """Apply micro-fixes to plugdata source to fix CI/build issues."""
+    window_h = Path("plugdata/Source/Standalone/PlugDataWindow.h")
+    if window_h.exists():
+        content = window_h.read_text()
+        # Fix: Stub closeAllPatches when not in standalone to avoid linker errors on strict systems
+        if "void closeAllPatches();" in content and "#ifndef PLUGDATA_STANDALONE" not in content:
+            print(clr("Patching PlugDataWindow.h: Stubbing closeAllPatches for non-standalone builds", BLUE))
+            patched = content.replace(
+                "void closeAllPatches();",
+                "#if PLUGDATA_STANDALONE\n    void closeAllPatches();\n#else\n    void closeAllPatches() {}\n#endif"
+            )
+            window_h.write_text(patched)
+
 def validate_plugin(plugin: dict, index: int):
     prefix = f"Plugin[{index}]"
 
@@ -123,6 +137,7 @@ def validate_plugin(plugin: dict, index: int):
 
 # ── Run validation ───────────────────────────────────────────────────────────
 
+patch_plugdata()
 plugins_config = validate_config("config.json")
 
 for i, plugin in enumerate(plugins_config):
