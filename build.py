@@ -283,9 +283,9 @@ for i, plugin in enumerate(plugins_config, 1):
     else:
         failed_builds += 1
 
-# ── Summary ─────────────────────────────────────────────────────────────────
+# -- Summary -----------------------------------------------------------------
 
-print(f"\n{'─' * 40}")
+print(f"\n{'-' * 40}")
 print(f"Build Summary:")
 print(f"  Total:   {total_plugins}")
 print(clr(f"  Success: {successful_builds}", GREEN))
@@ -293,7 +293,7 @@ if failed_builds > 0:
     print(clr(f"  Failed:  {failed_builds}", RED))
 else:
     print(f"  Failed:  {failed_builds}")
-print(f"{'─' * 40}\n")
+print(f"{'-' * 40}\n")
 
 if failed_builds > 0:
     sys.exit(1)
