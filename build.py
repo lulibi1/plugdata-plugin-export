@@ -28,6 +28,19 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# ── Terminal Colors ──────────────────────────────────────────────────────────
+
+RED = 91
+GREEN = 92
+YELLOW = 93
+BLUE = 34
+
+def clr(text, color):
+    """Wrap text in ANSI escape sequences if stdout is a TTY."""
+    if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
+        return f"\033[{color}m{text}\033[0m"
+    return text
+
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
@@ -37,32 +50,58 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', RED)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', YELLOW)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(f"{clr('FATAL', RED)}: config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(f"{clr('FATAL', RED)}: config.json is not valid JSON – {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(f"{clr('FATAL', RED)}: config.json must contain a JSON array of plugin objects.")
         sys.exit(1)
 
     if len(data) == 0:
         warn("config.json contains no plugins – nothing to build.")
 
     return data
+
+def patch_plugdata():
+    """
+    Patch plugdata source to avoid linker errors in non-standalone builds.
+    PlugDataWindow::closeAllPatches() is referenced in PluginEditor.cpp
+    but defined in PlugDataApp.cpp (standalone only).
+    """
+    header_path = Path("plugdata/Source/Standalone/PlugDataWindow.h")
+    if not header_path.exists():
+        return
+
+    with open(header_path, "r") as f:
+        content = f.read()
+
+    # If already patched, skip
+    if "inline void closeAllPatches() {}" in content:
+        return
+
+    # Replace the declaration with an inline stub if not standalone
+    patched = content.replace(
+        "    void closeAllPatches();",
+        "#if PLUGDATA_STANDALONE\n    void closeAllPatches();\n#else\n    inline void closeAllPatches() {}\n#endif"
+    )
+
+    with open(header_path, "w") as f:
+        f.write(patched)
 
 def validate_plugin(plugin: dict, index: int):
     prefix = f"Plugin[{index}]"
@@ -81,8 +120,6 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -157,12 +194,18 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+    print(f"{clr('FATAL', RED)}: plugdata directory not found at '{plugdata_dir}'. "
           f"Make sure you're running this script from the repo root and that "
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
-for plugin in plugins_config:
+patch_plugdata()
+
+total_plugins = len(plugins_config)
+successful_builds = 0
+failed_builds = 0
+
+for i, plugin in enumerate(plugins_config, 1):
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
     patch = plugin["patch"]
@@ -170,7 +213,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr(f'[{i}/{total_plugins}]', BLUE)} Processing: {clr(name, BLUE)}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,10 +245,12 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{clr('Failed', RED)} cmake configure for {name}")
+        failed_builds += 1
         continue
 
     if not args.configure_only:
+        plugin_success = True
         for fmt in formats:
             if system != "Darwin" and fmt == "AU":
                 continue
@@ -222,9 +267,10 @@ for plugin in plugins_config:
             print(f"Building target: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(f"{clr('Failed', RED)} to build target: {target}")
+                plugin_success = False
             else:
-                print(f"Successfully built: {target}")
+                print(f"{clr('Successfully built', GREEN)}: {target}")
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +302,19 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+        if plugin_success:
+            successful_builds += 1
+        else:
+            failed_builds += 1
+    else:
+        successful_builds += 1
+
+print(f"\n{clr('Build Summary:', BLUE)}")
+print(f"  Total plugins: {total_plugins}")
+print(f"  {clr('Successful', GREEN)}:    {successful_builds}")
+if failed_builds > 0:
+    print(f"  {clr('Failed', RED)}:        {failed_builds}")
+
+if failed_builds > 0:
+    sys.exit(1)
