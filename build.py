@@ -77,6 +77,32 @@ def validate_config(path: str) -> list:
 
     return data
 
+def patch_plugdata():
+    """
+    Patch plugdata source to avoid linker errors in non-standalone builds.
+    PlugDataWindow::closeAllPatches() is referenced in PluginEditor.cpp
+    but defined in PlugDataApp.cpp (standalone only).
+    """
+    header_path = Path("plugdata/Source/Standalone/PlugDataWindow.h")
+    if not header_path.exists():
+        return
+
+    with open(header_path, "r") as f:
+        content = f.read()
+
+    # If already patched, skip
+    if "inline void closeAllPatches() {}" in content:
+        return
+
+    # Replace the declaration with an inline stub if not standalone
+    patched = content.replace(
+        "    void closeAllPatches();",
+        "#if PLUGDATA_STANDALONE\n    void closeAllPatches();\n#else\n    inline void closeAllPatches() {}\n#endif"
+    )
+
+    with open(header_path, "w") as f:
+        f.write(patched)
+
 def validate_plugin(plugin: dict, index: int):
     prefix = f"Plugin[{index}]"
 
@@ -172,6 +198,8 @@ if not plugdata_dir.is_dir():
           f"Make sure you're running this script from the repo root and that "
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
+
+patch_plugdata()
 
 total_plugins = len(plugins_config)
 successful_builds = 0
