@@ -79,6 +79,22 @@ def validate_config(path: str) -> list:
 
     return data
 
+def patch_plugdata():
+    """Patches plugdata source to fix linking issues."""
+    window_h = Path("plugdata/Source/Standalone/PlugDataWindow.h")
+    if not window_h.exists():
+        return
+
+    content = window_h.read_text()
+    # Stub closeAllPatches for non-standalone builds to avoid linker errors
+    search_str = "    void closeAllPatches();"
+    replace_str = "#if JUCE_STANDALONE_APPLICATION\n    void closeAllPatches();\n#else\n    void closeAllPatches() {}\n#endif"
+
+    if search_str in content and replace_str not in content:
+        print(clr("Patching plugdata/Source/Standalone/PlugDataWindow.h...", BLUE))
+        new_content = content.replace(search_str, replace_str)
+        window_h.write_text(new_content)
+
 def validate_plugin(plugin: dict, index: int):
     prefix = f"Plugin[{index}]"
 
@@ -174,6 +190,8 @@ if not plugdata_dir.is_dir():
           f"Make sure you're running this script from the repo root and that "
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
+
+patch_plugdata()
 
 num_plugins = len(plugins_config)
 success_count = 0
