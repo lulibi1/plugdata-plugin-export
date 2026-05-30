@@ -285,12 +285,12 @@ for i, plugin in enumerate(plugins_config):
 # ── Final Summary ───────────────────────────────────────────────────────────
 
 if not args.configure_only:
-    print(f"\n{clr('─' * 50, BLUE)}")
+    print(f"\n{clr('-' * 50, BLUE)}")
     print(f"Build Summary:")
     print(f"  Total:   {num_plugins}")
     print(f"  Success: {clr(success_count, GREEN)}")
     print(f"  Failed:  {clr(failed_count, RED)}")
-    print(f"{clr('─' * 50, BLUE)}\n")
+    print(f"{clr('-' * 50, BLUE)}\n")
 
 if failed_count > 0:
     sys.exit(1)
