@@ -28,6 +28,21 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# ── Color support ───────────────────────────────────────────────────────────
+
+RED = 91
+GREEN = 92
+YELLOW = 93
+BLUE = 34
+
+def clr(text, color):
+    """Wrap text in ANSI escape codes if color is enabled."""
+    if os.environ.get("NO_COLOR"):
+        return str(text)
+    if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
+        return f"\033[{color}m{text}\033[0m"
+    return str(text)
+
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
@@ -37,10 +52,10 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', RED)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', YELLOW)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -81,8 +96,6 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,13 +135,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", YELLOW))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", RED))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -162,7 +175,12 @@ if not plugdata_dir.is_dir():
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
-for plugin in plugins_config:
+num_plugins = len(plugins_config)
+success_count = 0
+failed_count = 0
+
+for i, plugin in enumerate(plugins_config):
+    plugin_failed = False
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
     patch = plugin["patch"]
@@ -170,7 +188,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n[{i+1}/{num_plugins}] {clr('Processing', BLUE)}: {name}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +220,8 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", RED))
+        failed_count += 1
         continue
 
     if not args.configure_only:
@@ -222,9 +241,10 @@ for plugin in plugins_config:
             print(f"Building target: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"Failed to build target: {target}", RED))
+                plugin_failed = True
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", GREEN))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +276,21 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+    if plugin_failed:
+        failed_count += 1
+    else:
+        success_count += 1
+
+# ── Final Summary ───────────────────────────────────────────────────────────
+
+if not args.configure_only:
+    print(f"\n{clr('─' * 50, BLUE)}")
+    print(f"Build Summary:")
+    print(f"  Total:   {num_plugins}")
+    print(f"  Success: {clr(success_count, GREEN)}")
+    print(f"  Failed:  {clr(failed_count, RED)}")
+    print(f"{clr('─' * 50, BLUE)}\n")
+
+if failed_count > 0:
+    sys.exit(1)
