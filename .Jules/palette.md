@@ -1,0 +1,3 @@
+## 2025-05-14 - CLI UX for Build Tools
+**Learning:** Developers are users too. In CLI tools, visual hierarchy using semantic ANSI colors, progress indicators, and summary reports significantly improves the "Developer Experience" (DX) by making verbose output scannable and providing clear closure. Additionally, domain-specific knowledge (like audio plugins often being directory bundles) is crucial for accurate input validation.
+**Action:** Use `[i/N]` progress counters and color-coded summaries in future CLI enhancements. Always verify if "file" path restrictions in config files might be too narrow for the specific domain (e.g., VST3/AU bundles).
