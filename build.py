@@ -31,6 +31,7 @@ args = parser.parse_args()
 def clr(text, color_code):
     """Simple ANSI color helper."""
     if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
+        # Use simple hyphens instead of Unicode characters for compatibility
         return f"\033[{color_code}m{text}\033[0m"
     return text
 
@@ -260,7 +261,6 @@ for i, plugin in enumerate(plugins_config):
                 continue
             else:
                 print(f"{clr('SUCCESS', GREEN)}: built {target}")
-
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
