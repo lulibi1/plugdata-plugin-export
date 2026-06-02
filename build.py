@@ -93,6 +93,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
+        elif not resolved.is_file() and not resolved.is_dir():
+            error(f"{prefix} ({name!r}): plugin path is neither a file nor a directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -121,6 +123,19 @@ def validate_plugin(plugin: dict, index: int):
         if val is not None and not isinstance(val, bool):
             warn(f"{prefix} ({name!r}): '{bool_field}' should be a boolean, got {val!r}.")
 
+def patch_plugdata():
+    """Apply necessary source patches to the plugdata submodule."""
+    # Fix linker error where non-standalone builds reference closeAllPatches()
+    header_path = Path("plugdata/Source/Standalone/PlugDataWindow.h")
+    if header_path.exists():
+        # Read as bytes to preserve line endings (CRLF on some systems)
+        content = header_path.read_bytes()
+        search = b"void closeAllPatches();"
+        replace = b"void closeAllPatches() {}"
+        if search in content and replace not in content:
+            patched = content.replace(search, replace)
+            header_path.write_bytes(patched)
+
 # ── Run validation ───────────────────────────────────────────────────────────
 
 plugins_config = validate_config("config.json")
@@ -144,6 +159,8 @@ if errors:
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
+
+patch_plugdata()
 
 system = platform.system()
 if system == "Windows":
