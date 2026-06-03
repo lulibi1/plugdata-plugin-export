@@ -28,6 +28,28 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# ── Patch Helpers ──────────────────────────────────────────────────────────
+
+def patch_plugdata():
+    """Applies necessary source patches to the plugdata submodule."""
+    script_dir = Path(__file__).parent.absolute()
+    header_path = script_dir / "plugdata/Source/Standalone/PlugDataWindow.h"
+    if not header_path.exists():
+        return
+
+    content = header_path.read_text()
+
+    # Stub closeAllPatches to avoid linker errors in non-standalone builds
+    # We use a pattern that matches the declaration and replaces it with a stub
+    # if it hasn't been patched already.
+    pattern = r"void\s+closeAllPatches\s*\(\s*\)\s*;"
+    stub = "\n#ifndef JUCE_Standalone\n    void closeAllPatches() {}\n#else\n    void closeAllPatches();\n#endif\n"
+
+    if re.search(pattern, content) and "#ifndef JUCE_Standalone" not in content:
+        print(f"Patching {header_path.name} to stub closeAllPatches for non-standalone targets...")
+        new_content = re.sub(pattern, stub, content)
+        header_path.write_text(new_content)
+
 # ── ANSI Color Helpers ─────────────────────────────────────────────────────
 
 RED = 91
@@ -183,6 +205,8 @@ if not plugdata_dir.is_dir():
           f"Make sure you're running this script from the repo root and that "
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
+
+patch_plugdata()
 
 successful_builds = 0
 failed_builds = 0
