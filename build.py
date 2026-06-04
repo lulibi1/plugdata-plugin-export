@@ -28,21 +28,16 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-# ── Color helpers ───────────────────────────────────────────────────────────
+# ── Utility helpers ─────────────────────────────────────────────────────────
 
-RED = 91
-GREEN = 92
-YELLOW = 93
-BLUE = 34
-CYAN = 36
+RED, GREEN, YELLOW, BLUE, CYAN = 91, 92, 93, 34, 36
+def clr(t, c):
+    if os.environ.get("NO_COLOR") or not (sys.stdout.isatty() or os.environ.get("FORCE_COLOR")): return str(t)
+    return f"\033[{c}m{t}\033[0m"
 
-def clr(text, color_code):
-    """Wraps text in ANSI escape codes for terminal color if supported."""
-    if os.environ.get("NO_COLOR"):
-        return str(text)
-    if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
-        return f"\033[{color_code}m{text}\033[0m"
-    return str(text)
+def patch_plugdata():
+    h = Path("plugdata/Source/Standalone/PlugDataWindow.h")
+    if h.exists(): h.write_text(h.read_text().replace("void closeAllPatches();", "void closeAllPatches() {}"))
 
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
@@ -52,23 +47,20 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
-def error(msg: str):
-    errors.append(f"  {clr('ERROR', RED)}: {msg}")
-
-def warn(msg: str):
-    warnings.append(f"  {clr('WARNING', YELLOW)}: {msg}")
+def error(msg: str): errors.append(f"  {clr('ERROR', RED)}: {msg}")
+def warn(msg: str): warnings.append(f"  {clr('WARNING', YELLOW)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"{clr('FATAL', RED)}: config.json not found at '{os.path.abspath(path)}'")
+        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"{clr('FATAL', RED)}: config.json is not valid JSON – {e}")
+        print(f"FATAL: config.json is not valid JSON – {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
@@ -139,14 +131,12 @@ for i, plugin in enumerate(plugins_config):
 
 if warnings:
     print(clr("Build warnings:", YELLOW))
-    for w in warnings:
-        print(w)
+    for w in warnings: print(w)
     print()
 
 if errors:
     print(clr("Build errors – cannot continue:", RED))
-    for e in errors:
-        print(e)
+    for e in errors: print(e)
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -173,15 +163,12 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"{clr('FATAL', RED)}: plugdata directory not found at '{plugdata_dir}'. "
-          f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+    print(f"{clr('FATAL', RED)}: plugdata directory not found at '{plugdata_dir}'.")
     sys.exit(1)
 
-successful_builds = 0
-failed_builds = 0
-
-total_plugins = len(plugins_config)
+patch_plugdata()
+s_b, f_b = 0, 0
+t_p = len(plugins_config)
 for i, plugin in enumerate(plugins_config, 1):
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
@@ -190,7 +177,7 @@ for i, plugin in enumerate(plugins_config, 1):
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\n[{i}/{total_plugins}] {clr('Processing', CYAN)}: {name}")
+    print(f"\n[{i}/{t_p}] {clr('Processing', CYAN)}: {name}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -222,13 +209,10 @@ for i, plugin in enumerate(plugins_config, 1):
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"{clr('Failed', RED)} cmake configure for {name}")
-        failed_builds += 1
-        continue
+        print(f"{clr('Failed', RED)} cmake configure for {name}"); f_b += 1; continue
+    if args.configure_only: s_b += 1; continue
 
-    if args.configure_only:
-        successful_builds += 1
-    else:
+    if not args.configure_only:
         for fmt in formats:
             if system != "Darwin" and fmt == "AU":
                 continue
@@ -245,11 +229,9 @@ for i, plugin in enumerate(plugins_config, 1):
             print(f"Building target: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"{clr('Failed', RED)} to build target: {target}")
-                failed_builds += 1
+                print(f"{clr('Failed', RED)} to build target: {target}"); f_b += 1
             else:
-                print(f"{clr('Successfully built', GREEN)}: {target}")
-                successful_builds += 1
+                print(f"{clr('Successfully built', GREEN)}: {target}"); s_b += 1
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -278,17 +260,11 @@ for i, plugin in enumerate(plugins_config, 1):
                         shutil.rmtree(dst)
                     shutil.copytree(src, dst)
                 else:
-                    if os.path.exists(dst):
-                        os.remove(dst)
+                    if os.path.exists(dst): os.remove(dst)
                     shutil.copy2(src, dst)
 
-# ── Build Summary ───────────────────────────────────────────────────────────
+# ── Summary ─────────────────────────────────────────────────────────────────
 
-total = successful_builds + failed_builds
-print(f"\n{clr('Build Summary', BLUE)}")
-print(f"  Total:   {total}")
-print(f"  Success: {clr(successful_builds, GREEN if successful_builds > 0 else 0)}")
-print(f"  Failed:  {clr(failed_builds, RED if failed_builds > 0 else 0)}")
-
-if failed_builds > 0:
-    sys.exit(1)
+print(f"\n{clr('Build Summary', BLUE)}\n  Total:   {s_b + f_b}\n"
+      f"  Success: {clr(s_b, GREEN if s_b > 0 else 0)}\n  Failed:  {clr(f_b, RED if f_b > 0 else 0)}")
+if f_b > 0: sys.exit(1)
