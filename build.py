@@ -8,6 +8,20 @@ import argparse
 import re
 import sys
 
+# --- UI Helpers ---
+RED = 91
+GREEN = 92
+YELLOW = 93
+BLUE = 34
+CYAN = 36
+
+def clr(text, color_code):
+    if os.environ.get("NO_COLOR"):
+        return text
+    if os.environ.get("FORCE_COLOR") or sys.stdout.isatty():
+        return f"\033[{color_code}m{text}\033[0m"
+    return text
+
 parser = argparse.ArgumentParser(description="Build plugins with CMake")
 parser.add_argument(
     "--compiler-launcher",
@@ -37,10 +51,10 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', RED)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', YELLOW)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -81,8 +95,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not (resolved.is_file() or resolved.is_dir()):
+            error(f"{prefix} ({name!r}): plugin path exists but is neither a file nor a directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,13 +136,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", YELLOW))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", RED))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -162,7 +176,11 @@ if not plugdata_dir.is_dir():
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
-for plugin in plugins_config:
+successful_builds = 0
+failed_builds = 0
+total_plugins = len(plugins_config)
+
+for i, plugin in enumerate(plugins_config, 1):
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
     patch = plugin["patch"]
@@ -170,7 +188,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr(f'[{i}/{total_plugins}] Processing: {name}', CYAN)}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -200,59 +218,76 @@ for plugin in plugins_config:
         cmake_configure.append(f"-DCMAKE_C_COMPILER_LAUNCHER={args.compiler_launcher}")
         cmake_configure.append(f"-DCMAKE_CXX_COMPILER_LAUNCHER={args.compiler_launcher}")
 
+    plugin_success = True
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
         print(f"Failed cmake configure for {name}")
-        continue
+        plugin_success = False
+    else:
+        if not args.configure_only:
+            for fmt in formats:
+                if system != "Darwin" and fmt == "AU":
+                    continue
+                target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
+                if fmt == "Standalone":
+                    target = "plugdata_standalone"
 
-    if not args.configure_only:
-        for fmt in formats:
-            if system != "Darwin" and fmt == "AU":
-                continue
-            target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
-            if fmt == "Standalone":
-                target = "plugdata_standalone"
-
-            cmake_build = [
-                "cmake",
-                "--build", str(build_dir),
-                "--target", target,
-                "--config Release"
-            ]
-            print(f"Building target: {target}")
-            result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
-            if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
-            else:
-                print(f"Successfully built: {target}")
-            format_path = os.path.join(plugins_dir, fmt)
-            target_dir = os.path.join(build_output_dir, fmt)
-
-            if fmt == "Standalone":
-                if os.path.isdir(format_path):
-                    if os.path.exists(target_dir):
-                        shutil.rmtree(target_dir)
-                    shutil.copytree(format_path, target_dir)
-            else:
-                extension = ""
-                if fmt == "VST3":
-                    extension = ".vst3"
-                elif fmt == "AU":
-                    extension = ".component"
-                elif fmt == "LV2":
-                    extension = ".lv2"
-                elif fmt == "CLAP":
-                    extension = ".clap"
-
-                plugin_filename = name + extension
-                os.makedirs(target_dir, exist_ok=True)
-                src = os.path.join(format_path, plugin_filename)
-                dst = os.path.join(target_dir, plugin_filename)
-                if os.path.isdir(src):
-                    if os.path.exists(dst):
-                        shutil.rmtree(dst)
-                    shutil.copytree(src, dst)
+                cmake_build = [
+                    "cmake",
+                    "--build", str(build_dir),
+                    "--target", target,
+                    "--config Release"
+                ]
+                print(f"Building target: {target}")
+                result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
+                if result_build.returncode != 0:
+                    print(f"Failed to build target: {target}")
+                    plugin_success = False
                 else:
-                    if os.path.exists(dst):
-                        os.remove(dst)
-                    shutil.copy2(src, dst)
+                    print(f"Successfully built: {target}")
+                    format_path = os.path.join(plugins_dir, fmt)
+                    target_dir = os.path.join(build_output_dir, fmt)
+
+                    if fmt == "Standalone":
+                        if os.path.isdir(format_path):
+                            if os.path.exists(target_dir):
+                                shutil.rmtree(target_dir)
+                            shutil.copytree(format_path, target_dir)
+                    else:
+                        extension = ""
+                        if fmt == "VST3":
+                            extension = ".vst3"
+                        elif fmt == "AU":
+                            extension = ".component"
+                        elif fmt == "LV2":
+                            extension = ".lv2"
+                        elif fmt == "CLAP":
+                            extension = ".clap"
+
+                        plugin_filename = name + extension
+                        os.makedirs(target_dir, exist_ok=True)
+                        src = os.path.join(format_path, plugin_filename)
+                        dst = os.path.join(target_dir, plugin_filename)
+                        if os.path.isdir(src):
+                            if os.path.exists(dst):
+                                shutil.rmtree(dst)
+                            shutil.copytree(src, dst)
+                        else:
+                            if os.path.exists(dst):
+                                os.remove(dst)
+                            shutil.copy2(src, dst)
+
+    if plugin_success:
+        successful_builds += 1
+    else:
+        failed_builds += 1
+
+print(f"\n{clr('Build Summary', BLUE)}")
+print(f"Total plugins: {total_plugins}")
+if successful_builds > 0:
+    print(f"Successfully built: {clr(str(successful_builds), GREEN)}")
+if failed_builds > 0:
+    print(f"Failed builds: {clr(str(failed_builds), RED)}")
+
+if failed_builds > 0:
+    sys.exit(1)
