@@ -36,11 +36,16 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
+def clr(text, code):
+    if os.environ.get("NO_COLOR") or not (sys.stdout.isatty() or os.environ.get("FORCE_COLOR")):
+        return text
+    return f"\033[{code}m{text}\033[0m"
+
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', 91)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', 93)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -81,8 +86,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not (resolved.is_file() or resolved.is_dir()):
+            error(f"{prefix} ({name!r}): plugin path exists but is not a file or directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,13 +127,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", 93))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", 91))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -157,20 +162,23 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
-          f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+    print(clr(f"FATAL: plugdata directory not found at '{plugdata_dir}'", 91))
     sys.exit(1)
 
-for plugin in plugins_config:
-    name = plugin["name"]
-    zip_path = Path(plugin["path"]).resolve()
-    patch = plugin["patch"]
-    formats = plugin.get("formats", [])
-    is_fx = plugin.get("type", "").lower() == "fx"
+for i, plugin in enumerate(plugins_config, 1):
+    name, patch, formats = plugin["name"], plugin["patch"], plugin.get("formats", [])
+    zip_path, is_fx = Path(plugin["path"]).resolve(), plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr(f'[{i}/{len(plugins_config)}] Processing: {name}', 36)}")
+
+    # Fix linker error for plugins by stubbing closeAllPatches
+    # This is implemented in PlugDataApp.h which is only compiled for Standalone
+    header = plugdata_dir / "Source" / "Standalone" / "PlugDataWindow.h"
+    if header.exists():
+        text = header.read_text()
+        if "void closeAllPatches();" in text:
+            header.write_text(text.replace("void closeAllPatches();", "#if JucePlugin_Build_Standalone\n    void closeAllPatches();\n#else\n    void closeAllPatches() {}\n#endif"))
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -203,7 +211,7 @@ for plugin in plugins_config:
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
         print(f"Failed cmake configure for {name}")
-        continue
+        sys.exit(1)
 
     if not args.configure_only:
         for fmt in formats:
@@ -223,6 +231,7 @@ for plugin in plugins_config:
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
                 print(f"Failed to build target: {target}")
+                sys.exit(1)
             else:
                 print(f"Successfully built: {target}")
             format_path = os.path.join(plugins_dir, fmt)
