@@ -30,46 +30,33 @@ args = parser.parse_args()
 
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
-RED = 91
-GREEN = 92
-YELLOW = 93
-BLUE = 34
-CYAN = 36
-
-def clr(text: str, color_code: int) -> str:
-    if os.environ.get("NO_COLOR"):
-        return text
-    if not sys.stdout.isatty() and not os.environ.get("FORCE_COLOR"):
-        return text
-    return f"\033[{color_code}m{text}\033[0m"
-
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
-errors = []   # fatal problems  – abort after collecting all of them
-warnings = [] # non-fatal oddities
+RED, GREEN, YELLOW, BLUE, CYAN = 91, 92, 93, 34, 36
+def clr(t, c):
+    if os.environ.get("NO_COLOR") or (not sys.stdout.isatty() and not os.environ.get("FORCE_COLOR")): return t
+    return f"\033[{c}m{t}\033[0m"
 
-def error(msg: str):
-    errors.append(f"  {clr('ERROR:', RED)} {msg}")
-
-def warn(msg: str):
-    warnings.append(f"  {clr('WARNING:', YELLOW)} {msg}")
+errors, warnings = [], []
+def error(msg: str): errors.append(f"  {clr('ERROR:', RED)} {msg}")
+def warn(msg: str): warnings.append(f"  {clr('WARNING:', YELLOW)} {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"{clr('FATAL:', RED)} config.json not found at '{os.path.abspath(path)}'")
+        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"{clr('FATAL:', RED)} config.json is not valid JSON – {e}")
+        print(f"FATAL: config.json is not valid JSON – {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
-        print(f"{clr('FATAL:', RED)} config.json must contain a JSON array of plugin objects.")
+        print("FATAL: config.json must contain a JSON array of plugin objects.")
         sys.exit(1)
 
     if len(data) == 0:
@@ -134,14 +121,12 @@ for i, plugin in enumerate(plugins_config):
 
 if warnings:
     print(clr("Build warnings:", YELLOW))
-    for w in warnings:
-        print(w)
+    for w in warnings: print(w)
     print()
 
 if errors:
     print(clr("Build errors – cannot continue:", RED))
-    for e in errors:
-        print(e)
+    for e in errors: print(e)
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -173,9 +158,7 @@ if not plugdata_dir.is_dir():
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
-successful_builds = 0
-failed_builds = 0
-
+success_cnt, fail_cnt = 0, 0
 for plugin in plugins_config:
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
@@ -217,11 +200,10 @@ for plugin in plugins_config:
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
         print(f"{clr('Failed', RED)} cmake configure for {name}")
-        failed_builds += 1
+        fail_cnt += 1
         continue
 
-    plugin_success = True
-
+    plugin_ok = True
     if not args.configure_only:
         for fmt in formats:
             if system != "Darwin" and fmt == "AU":
@@ -240,7 +222,7 @@ for plugin in plugins_config:
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
                 print(f"{clr('Failed', RED)} to build target: {target}")
-                plugin_success = False
+                plugin_ok = False
             else:
                 print(f"{clr('Successfully built:', GREEN)} {target}")
             format_path = os.path.join(plugins_dir, fmt)
@@ -275,23 +257,11 @@ for plugin in plugins_config:
                         os.remove(dst)
                     shutil.copy2(src, dst)
 
-    if plugin_success:
-        successful_builds += 1
-    else:
-        failed_builds += 1
+    if plugin_ok: success_cnt += 1
+    else: fail_cnt += 1
 
-
-# ── Summary report ───────────────────────────────────────────────────────────
-
-total_builds = len(plugins_config)
 sep = "-" * 50
-print(f"\n{clr(sep, BLUE)}")
-print(clr("Build Summary".center(50), BLUE))
-print(f"{clr(sep, BLUE)}")
-print(f"Total plugins:      {total_builds}")
-print(f"Successfully built: {clr(str(successful_builds), GREEN)}")
-print(f"Failed builds:      {clr(str(failed_builds), RED) if failed_builds > 0 else failed_builds}")
-print(f"{clr(sep, BLUE)}\n")
-
-if failed_builds > 0:
-    sys.exit(1)
+print(f"\n{clr(sep, BLUE)}\n{clr('Build Summary'.center(50), BLUE)}\n{clr(sep, BLUE)}")
+print(f"Total: {len(plugins_config)} | Success: {clr(str(success_cnt), GREEN)} | Fail: {clr(str(fail_cnt), RED) if fail_cnt else 0}")
+print(clr(sep, BLUE) + "\n")
+if fail_cnt: sys.exit(1)
