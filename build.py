@@ -284,13 +284,14 @@ for plugin in plugins_config:
 # ── Summary report ───────────────────────────────────────────────────────────
 
 total_builds = len(plugins_config)
-print(f"\n{clr('─' * 50, BLUE)}")
+sep = "-" * 50
+print(f"\n{clr(sep, BLUE)}")
 print(clr("Build Summary".center(50), BLUE))
-print(f"{clr('─' * 50, BLUE)}")
+print(f"{clr(sep, BLUE)}")
 print(f"Total plugins:      {total_builds}")
 print(f"Successfully built: {clr(str(successful_builds), GREEN)}")
 print(f"Failed builds:      {clr(str(failed_builds), RED) if failed_builds > 0 else failed_builds}")
-print(f"{clr('─' * 50, BLUE)}\n")
+print(f"{clr(sep, BLUE)}\n")
 
 if failed_builds > 0:
     sys.exit(1)
