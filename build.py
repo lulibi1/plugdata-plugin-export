@@ -281,12 +281,12 @@ for idx, plugin in enumerate(plugins_config, 1):
     else:
         success_count += 1
 
-print("\n" + clr("─" * 50, 34))
+print("\n" + clr("-" * 50, 34))
 print(clr("Build Summary", 34))
 print(f"  Total plugins:   {total_plugins}")
 print(f"  {clr('Successful', 92)}:      {success_count}")
 print(f"  {clr('Failed', 91)}:          {fail_count}")
-print(clr("─" * 50, 34))
+print(clr("-" * 50, 34))
 
 if fail_count > 0:
     sys.exit(1)
