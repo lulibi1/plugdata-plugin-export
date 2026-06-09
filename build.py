@@ -177,109 +177,132 @@ if not plugdata_dir.is_dir():
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
-for idx, plugin in enumerate(plugins_config, 1):
-    name = plugin["name"]
-    zip_path = Path(plugin["path"]).resolve()
-    patch = plugin["patch"]
-    formats = plugin.get("formats", [])
-    is_fx = plugin.get("type", "").lower() == "fx"
+# Dynamic patching to resolve linker errors in non-standalone builds
+# We provide a stub for closeAllPatches() which is otherwise undefined
+header_path = plugdata_dir / "Source" / "Standalone" / "PlugDataWindow.h"
+original_header_content = None
 
-    build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\n{clr(f'[{idx}/{total_plugins}]', 36)} Processing: {clr(name, 1)}")
+if header_path.exists():
+    with open(header_path, "r") as f:
+        original_header_content = f.read()
 
-    plugin_failed = False
+    patched_content = original_header_content.replace(
+        "void closeAllPatches();",
+        "void closeAllPatches() {}"
+    )
 
-    author = plugin.get("author", False)
-    version = plugin.get("version", "1.0.0")
-    enable_gem = plugin.get("enable_gem", False)
-    enable_sfizz = plugin.get("enable_sfizz", False)
-    enable_ffmpeg = plugin.get("enable_ffmpeg", False)
+    with open(header_path, "w") as f:
+        f.write(patched_content)
 
-    cmake_configure = [
-        "cmake",
-        "-GNinja",
-        *cmake_generator,
-        *cmake_compiler,
-        f"-B{build_dir}",
-        f"-DCUSTOM_PLUGIN_NAME={name}",
-        f"-DCUSTOM_PLUGIN_PATCH={patch}",
-        f"-DCUSTOM_PLUGIN_PATH={zip_path}",
-        f"-DCUSTOM_PLUGIN_COMPANY={author}",
-        f"-DCUSTOM_PLUGIN_VERSION={version}",
-        "-DCMAKE_BUILD_TYPE=Release",
-        f"-DENABLE_GEM={'1' if enable_gem else '0'}",
-        f"-DENABLE_SFIZZ={'1' if enable_sfizz else '0'}",
-        f"-DENABLE_FFMPEG={'1' if enable_ffmpeg else '0'}",
-        f"-DCUSTOM_PLUGIN_IS_FX={'1' if is_fx else '0'}"
-    ]
+try:
+    for idx, plugin in enumerate(plugins_config, 1):
+        name = plugin["name"]
+        zip_path = Path(plugin["path"]).resolve()
+        patch = plugin["patch"]
+        formats = plugin.get("formats", [])
+        is_fx = plugin.get("type", "").lower() == "fx"
 
-    if args.compiler_launcher:
-        cmake_configure.append(f"-DCMAKE_C_COMPILER_LAUNCHER={args.compiler_launcher}")
-        cmake_configure.append(f"-DCMAKE_CXX_COMPILER_LAUNCHER={args.compiler_launcher}")
+        build_dir = builds_parent_dir / f"{args.generator}-{name}"
+        print(f"\n{clr(f'[{idx}/{total_plugins}]', 36)} Processing: {clr(name, 1)}")
 
-    result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
-    if result_configure.returncode != 0:
-        print(clr(f"Failed cmake configure for {name}", 91))
-        fail_count += 1
-        continue
+        plugin_failed = False
 
-    if not args.configure_only:
-        for fmt in formats:
-            if system != "Darwin" and fmt == "AU":
-                continue
-            target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
-            if fmt == "Standalone":
-                target = "plugdata_standalone"
+        author = plugin.get("author", False)
+        version = plugin.get("version", "1.0.0")
+        enable_gem = plugin.get("enable_gem", False)
+        enable_sfizz = plugin.get("enable_sfizz", False)
+        enable_ffmpeg = plugin.get("enable_ffmpeg", False)
 
-            cmake_build = [
-                "cmake",
-                "--build", str(build_dir),
-                "--target", target,
-                "--config Release"
-            ]
-            print(f"Building target: {target}")
-            result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
-            if result_build.returncode != 0:
-                print(clr(f"Failed to build target: {target}", 91))
-                plugin_failed = True
-            else:
-                print(clr(f"Successfully built: {target}", 92))
-            format_path = os.path.join(plugins_dir, fmt)
-            target_dir = os.path.join(build_output_dir, fmt)
+        cmake_configure = [
+            "cmake",
+            "-GNinja",
+            *cmake_generator,
+            *cmake_compiler,
+            f"-B{build_dir}",
+            f"-DCUSTOM_PLUGIN_NAME={name}",
+            f"-DCUSTOM_PLUGIN_PATCH={patch}",
+            f"-DCUSTOM_PLUGIN_PATH={zip_path}",
+            f"-DCUSTOM_PLUGIN_COMPANY={author}",
+            f"-DCUSTOM_PLUGIN_VERSION={version}",
+            "-DCMAKE_BUILD_TYPE=Release",
+            f"-DENABLE_GEM={'1' if enable_gem else '0'}",
+            f"-DENABLE_SFIZZ={'1' if enable_sfizz else '0'}",
+            f"-DENABLE_FFMPEG={'1' if enable_ffmpeg else '0'}",
+            f"-DCUSTOM_PLUGIN_IS_FX={'1' if is_fx else '0'}"
+        ]
 
-            if fmt == "Standalone":
-                if os.path.isdir(format_path):
-                    if os.path.exists(target_dir):
-                        shutil.rmtree(target_dir)
-                    shutil.copytree(format_path, target_dir)
-            else:
-                extension = ""
-                if fmt == "VST3":
-                    extension = ".vst3"
-                elif fmt == "AU":
-                    extension = ".component"
-                elif fmt == "LV2":
-                    extension = ".lv2"
-                elif fmt == "CLAP":
-                    extension = ".clap"
+        if args.compiler_launcher:
+            cmake_configure.append(f"-DCMAKE_C_COMPILER_LAUNCHER={args.compiler_launcher}")
+            cmake_configure.append(f"-DCMAKE_CXX_COMPILER_LAUNCHER={args.compiler_launcher}")
 
-                plugin_filename = name + extension
-                os.makedirs(target_dir, exist_ok=True)
-                src = os.path.join(format_path, plugin_filename)
-                dst = os.path.join(target_dir, plugin_filename)
-                if os.path.isdir(src):
-                    if os.path.exists(dst):
-                        shutil.rmtree(dst)
-                    shutil.copytree(src, dst)
+        result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
+        if result_configure.returncode != 0:
+            print(clr(f"Failed cmake configure for {name}", 91))
+            fail_count += 1
+            continue
+
+        if not args.configure_only:
+            for fmt in formats:
+                if system != "Darwin" and fmt == "AU":
+                    continue
+                target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
+                if fmt == "Standalone":
+                    target = "plugdata_standalone"
+
+                cmake_build = [
+                    "cmake",
+                    "--build", str(build_dir),
+                    "--target", target,
+                    "--config Release"
+                ]
+                print(f"Building target: {target}")
+                result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
+                if result_build.returncode != 0:
+                    print(clr(f"Failed to build target: {target}", 91))
+                    plugin_failed = True
                 else:
-                    if os.path.exists(dst):
-                        os.remove(dst)
-                    shutil.copy2(src, dst)
+                    print(clr(f"Successfully built: {target}", 92))
+                format_path = os.path.join(plugins_dir, fmt)
+                target_dir = os.path.join(build_output_dir, fmt)
 
-    if plugin_failed:
-        fail_count += 1
-    else:
-        success_count += 1
+                if fmt == "Standalone":
+                    if os.path.isdir(format_path):
+                        if os.path.exists(target_dir):
+                            shutil.rmtree(target_dir)
+                        shutil.copytree(format_path, target_dir)
+                else:
+                    extension = ""
+                    if fmt == "VST3":
+                        extension = ".vst3"
+                    elif fmt == "AU":
+                        extension = ".component"
+                    elif fmt == "LV2":
+                        extension = ".lv2"
+                    elif fmt == "CLAP":
+                        extension = ".clap"
+
+                    plugin_filename = name + extension
+                    os.makedirs(target_dir, exist_ok=True)
+                    src = os.path.join(format_path, plugin_filename)
+                    dst = os.path.join(target_dir, plugin_filename)
+                    if os.path.isdir(src):
+                        if os.path.exists(dst):
+                            shutil.rmtree(dst)
+                        shutil.copytree(src, dst)
+                    else:
+                        if os.path.exists(dst):
+                            os.remove(dst)
+                        shutil.copy2(src, dst)
+
+        if plugin_failed:
+            fail_count += 1
+        else:
+            success_count += 1
+
+finally:
+    if original_header_content is not None:
+        with open(header_path, "w") as f:
+            f.write(original_header_content)
 
 print("\n" + clr("-" * 50, 34))
 print(clr("Build Summary", 34))
