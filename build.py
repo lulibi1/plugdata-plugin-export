@@ -8,6 +8,19 @@ import argparse
 import re
 import sys
 
+def clr(text, code):
+    """
+    Wrap text in an ANSI color code.
+    Red: 91, Green: 92, Yellow: 93, Blue: 34, Cyan: 36
+    """
+    # NO_COLOR: https://no-color.org/
+    if os.getenv("NO_COLOR"):
+        return text
+    # FORCE_COLOR: common convention
+    if os.getenv("FORCE_COLOR") or sys.stdout.isatty():
+        return f"\033[{code}m{text}\033[0m"
+    return text
+
 parser = argparse.ArgumentParser(description="Build plugins with CMake")
 parser.add_argument(
     "--compiler-launcher",
@@ -37,10 +50,10 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', 91)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', 93)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -81,8 +94,6 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -156,13 +167,17 @@ plugins_dir = os.path.join("plugdata", "Plugins")
 build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
+total_plugins = len(plugins_config)
+success_count = 0
+fail_count = 0
+
 if not plugdata_dir.is_dir():
     print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
           f"Make sure you're running this script from the repo root and that "
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
-for plugin in plugins_config:
+for idx, plugin in enumerate(plugins_config, 1):
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
     patch = plugin["patch"]
@@ -170,7 +185,9 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr(f'[{idx}/{total_plugins}]', 36)} Processing: {clr(name, 1)}")
+
+    plugin_failed = False
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +219,8 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", 91))
+        fail_count += 1
         continue
 
     if not args.configure_only:
@@ -222,9 +240,10 @@ for plugin in plugins_config:
             print(f"Building target: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"Failed to build target: {target}", 91))
+                plugin_failed = True
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", 92))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +275,18 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+    if plugin_failed:
+        fail_count += 1
+    else:
+        success_count += 1
+
+print("\n" + clr("─" * 50, 34))
+print(clr("Build Summary", 34))
+print(f"  Total plugins:   {total_plugins}")
+print(f"  {clr('Successful', 92)}:      {success_count}")
+print(f"  {clr('Failed', 91)}:          {fail_count}")
+print(clr("─" * 50, 34))
+
+if fail_count > 0:
+    sys.exit(1)
