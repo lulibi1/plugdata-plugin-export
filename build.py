@@ -88,8 +88,6 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -171,7 +169,6 @@ if not plugdata_dir.is_dir():
 
 success_count = 0
 total_plugins = len(plugins_config)
-
 for i, plugin in enumerate(plugins_config, 1):
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
