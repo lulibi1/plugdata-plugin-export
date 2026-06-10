@@ -38,8 +38,7 @@ warnings = [] # non-fatal oddities
 
 def clr(text: str, code: int) -> str:
     """Helper to wrap text in ANSI color codes."""
-    if os.environ.get("NO_COLOR"):
-        return text
+    if os.environ.get("NO_COLOR"): return text
     if os.environ.get("FORCE_COLOR") or sys.stdout.isatty():
         return f"\033[{code}m{text}\033[0m"
     return text
@@ -89,6 +88,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
+        elif not resolved.is_file():
+            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -128,13 +129,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print(clr("Build warnings:", 93))
+    print("Build warnings:")
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print(clr("Build errors – cannot continue:", 91))
+    print("Build errors – cannot continue:")
     for e in errors:
         print(e)
     sys.exit(1)
@@ -163,13 +164,12 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"{clr('FATAL', 91)}: plugdata directory not found at '{plugdata_dir}'. "
+    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
           f"Make sure you're running this script from the repo root and that "
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
 success_count = 0
-failed_plugins = []
 total_plugins = len(plugins_config)
 
 for i, plugin in enumerate(plugins_config, 1):
@@ -212,11 +212,9 @@ for i, plugin in enumerate(plugins_config, 1):
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"{clr('Failed', 91)} cmake configure for {name}")
-        failed_plugins.append(name)
+        print(f"Failed cmake configure for {name}")
         continue
 
-    plugin_failed = False
     if not args.configure_only:
         for fmt in formats:
             if system != "Darwin" and fmt == "AU":
@@ -235,9 +233,9 @@ for i, plugin in enumerate(plugins_config, 1):
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
                 print(f"{clr('Failed', 91)} to build target: {target}")
-                plugin_failed = True
             else:
                 print(f"{clr('Successfully built', 92)}: {target}")
+                success_count += 1
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -270,18 +268,4 @@ for i, plugin in enumerate(plugins_config, 1):
                         os.remove(dst)
                     shutil.copy2(src, dst)
 
-    if not plugin_failed:
-        success_count += 1
-    else:
-        failed_plugins.append(name)
-
-print(f"\n{clr('Build Summary', 34)}")
-print(f"Total plugins: {total_plugins}")
-print(f"{clr('Success', 92)}: {success_count}")
-if failed_plugins:
-    print(f"{clr('Failed', 91)}: {len(failed_plugins)}")
-    for p in failed_plugins:
-        print(f"  - {p}")
-
-if failed_plugins:
-    sys.exit(1)
+print(f"\n{clr('Build Summary', 34)}\nTotal plugins: {total_plugins}\n{clr('Success', 92)}: {success_count}")

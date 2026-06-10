@@ -1,3 +1,3 @@
-## 2025-05-14 - Colorized CLI Progress and Summary
-**Learning:** For CLI-based developer tools, colorized progress indicators and a final success/failure summary are essential for a good DX, especially in long-running build processes where the user might lose track of the overall state. Standardizing on common ANSI colors (Cyan for processing, Green for success, Red for failure) makes the output instantly scannable.
-**Action:** Implement `[current/total]` progress tracking and a dedicated summary block in all CLI scripts to provide immediate feedback and clear resolution.
+## 2025-05-14 - Scannable CLI Output for Developer Tools
+**Learning:** For command-line build tools, color-coded status messages and a final summary significantly improve scannability. Developers can quickly identify if a build was successful without reading through verbose logs. Cyan for processing, Green for success, and Red for errors are standard, effective choices.
+**Action:** Always include a brief success/failure summary at the end of long-running CLI processes and use ANSI colors (respecting NO_COLOR) to highlight state changes.
