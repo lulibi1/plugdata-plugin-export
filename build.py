@@ -28,17 +28,10 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-# ── Color support ───────────────────────────────────────────────────────────
-
-def clr(text, color_code):
-    """
-    Wraps text in ANSI escape codes if stdout is a TTY and NO_COLOR is not set.
-    """
-    no_color = os.environ.get("NO_COLOR")
-    force_color = os.environ.get("FORCE_COLOR")
-    if (sys.stdout.isatty() or force_color) and not no_color:
-        return f"\033[{color_code}m{text}\033[0m"
-    return text
+def clr(t, c):
+    if (sys.stdout.isatty() or os.getenv("FORCE_COLOR")) and not os.getenv("NO_COLOR"):
+        return f"\033[{c}m{t}\033[0m"
+    return t
 
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
@@ -57,18 +50,18 @@ def warn(msg: str):
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(clr(f"FATAL: config.json not found at '{os.path.abspath(path)}'", 91))
+        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(clr(f"FATAL: config.json is not valid JSON – {e}", 91))
+        print(f"FATAL: config.json is not valid JSON – {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
-        print(clr("FATAL: config.json must contain a JSON array of plugin objects.", 91))
+        print("FATAL: config.json must contain a JSON array of plugin objects.")
         sys.exit(1)
 
     if len(data) == 0:
@@ -93,8 +86,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not (resolved.is_file() or resolved.is_dir()):
-            error(f"{prefix} ({name!r}): plugin path exists but is neither a file nor a directory: '{resolved}'")
+        elif not resolved.is_file():
+            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -134,13 +127,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print(clr("Build warnings:", 93))
+    print("Build warnings:")
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print(clr("Build errors – cannot continue:", 91))
+    print("Build errors – cannot continue:")
     for e in errors:
         print(e)
     sys.exit(1)
@@ -169,14 +162,10 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(clr(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
-          "Make sure you're running this script from the repo root and that "
-          "the plugdata submodule has been initialised (git submodule update --init).", 91))
+    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+          f"Make sure you're running this script from the repo root and that "
+          f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
-
-total_plugins = len(plugins_config)
-successful_builds = 0
-failed_builds = 0
 
 for plugin in plugins_config:
     name = plugin["name"]
@@ -218,12 +207,10 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(clr(f"Failed cmake configure for {name}", 91))
-        failed_builds += 1
+        print(f"Failed cmake configure for {name}")
         continue
 
     if not args.configure_only:
-        plugin_success = True
         for fmt in formats:
             if system != "Darwin" and fmt == "AU":
                 continue
@@ -237,11 +224,10 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(clr(f"Building target: {target}", 36))
+            print(f"Building target: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
                 print(clr(f"Failed to build target: {target}", 91))
-                plugin_success = False
             else:
                 print(clr(f"Successfully built: {target}", 92))
             format_path = os.path.join(plugins_dir, fmt)
@@ -275,21 +261,3 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
-
-        if plugin_success:
-            successful_builds += 1
-        else:
-            failed_builds += 1
-    else:
-        successful_builds += 1
-
-# ── Final Summary ───────────────────────────────────────────────────────────
-
-print(f"\n{clr('Build Summary:', 34)}")
-print(f"  Total plugins:  {total_plugins}")
-print(f"  Successful:     {clr(str(successful_builds), 92)}")
-if failed_builds > 0:
-    print(f"  Failed:         {clr(str(failed_builds), 91)}")
-
-if failed_builds > 0:
-    sys.exit(1)
