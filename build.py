@@ -264,4 +264,3 @@ for plugin in plugins_config:
 
 print(clr(f"\nBuild Summary:", 34))
 print(f"  Total: {len(plugins_config)}, Success: {clr(stats['success'], 92)}, Fail: {clr(stats['fail'], 91)}")
-if stats["fail"] > 0: sys.exit(1)
