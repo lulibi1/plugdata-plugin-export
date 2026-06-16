@@ -36,27 +36,35 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
+def clr(text: str, code: str) -> str:
+    """Apply ANSI color if stdout is a TTY or FORCE_COLOR is set."""
+    if os.environ.get("NO_COLOR"):
+        return text
+    if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
+        return f"\033[{code}m{text}\033[0m"
+    return text
+
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', '91')}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', '93')}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(f"{clr('FATAL', '91')}: config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(f"{clr('FATAL', '91')}: config.json is not valid JSON – {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(f"{clr('FATAL', '91')}: config.json must contain a JSON array of plugin objects.")
         sys.exit(1)
 
     if len(data) == 0:
@@ -75,14 +83,20 @@ def validate_plugin(plugin: dict, index: int):
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
 
     path = plugin.get("path")
+    patch = plugin.get("patch")
     if not path:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
     else:
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
+        elif resolved.is_dir():
+            if not patch:
+                error(f"{prefix} ({name!r}): 'path' is a directory, but 'patch' field is missing.")
+            elif not (resolved / patch).exists():
+                error(f"{prefix} ({name!r}): patch file '{patch}' not found in directory '{resolved}'")
         elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+            error(f"{prefix} ({name!r}): plugin path exists but is not a file or directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,13 +136,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", "93"))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", "91"))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -157,10 +171,11 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
-          f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+    print(f"{clr('FATAL', '91')}: plugdata directory not found at '{plugdata_dir}'.\n"
+          f"Make sure you're running from the repo root and submodules are initialized.")
     sys.exit(1)
+
+stats = {"total": 0, "success": 0, "failed": 0}
 
 for plugin in plugins_config:
     name = plugin["name"]
@@ -170,7 +185,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing:', '36')} {name}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,29 +217,36 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{clr('ERROR', '91')}: Failed cmake configure for {name}")
+        stats["failed"] += 1
         continue
 
-    if not args.configure_only:
-        for fmt in formats:
-            if system != "Darwin" and fmt == "AU":
-                continue
-            target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
-            if fmt == "Standalone":
-                target = "plugdata_standalone"
+    if args.configure_only:
+        stats["success"] += 1
+        continue
 
-            cmake_build = [
-                "cmake",
-                "--build", str(build_dir),
-                "--target", target,
-                "--config Release"
-            ]
-            print(f"Building target: {target}")
-            result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
-            if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
-            else:
-                print(f"Successfully built: {target}")
+    for fmt in formats:
+        if system != "Darwin" and fmt == "AU":
+            continue
+        stats["total"] += 1
+        target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
+        if fmt == "Standalone":
+            target = "plugdata_standalone"
+
+        cmake_build = [
+            "cmake",
+            "--build", str(build_dir),
+            "--target", target,
+            "--config Release"
+        ]
+        print(f"  Building target: {target}")
+        result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
+        if result_build.returncode != 0:
+            print(f"  {clr('ERROR', '91')}: Failed to build target: {target}")
+            stats["failed"] += 1
+        else:
+            print(f"  {clr('SUCCESS', '92')}: Built {target}")
+            stats["success"] += 1
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +278,13 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+# ── Build Summary ───────────────────────────────────────────────────────────
+
+print(f"\n{clr('─' * 50, '34')}")
+print(clr("Build Summary", "34"))
+print(f"  Total targets:   {stats['total']}")
+print(f"  {clr('Succeeded:', '92')}       {stats['success']}")
+if stats['failed'] > 0:
+    print(f"  {clr('Failed:', '91')}          {stats['failed']}")
+print(clr('─' * 50, '34'))
