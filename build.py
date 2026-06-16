@@ -36,11 +36,17 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
+def clr(text, code):
+    if os.environ.get("NO_COLOR"): return text
+    if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
+        return f"\033[{code}m{text}\033[0m"
+    return text
+
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', '91')}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', '93')}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -75,14 +81,19 @@ def validate_plugin(plugin: dict, index: int):
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
 
     path = plugin.get("path")
+    patch = plugin.get("patch")
     if not path:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
     else:
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
+        elif resolved.is_dir():
+            if not patch: error(f"{prefix} ({name!r}): 'path' is a directory, but 'patch' is missing.")
+            elif not (resolved / patch).exists():
+                error(f"{prefix} ({name!r}): patch '{patch}' not found in '{resolved}'")
         elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+            error(f"{prefix} ({name!r}): plugin path is not a file or directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -157,11 +168,10 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
-          f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+    print(f"{clr('FATAL', '91')}: plugdata directory not found at '{plugdata_dir}'.")
     sys.exit(1)
 
+stats = {"success": 0, "failed": 0}
 for plugin in plugins_config:
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
@@ -170,7 +180,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing:', '36')} {name}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,29 +212,26 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{clr('ERROR', '91')}: Failed cmake configure for {name}")
+        stats["failed"] += 1
+        continue
+    if args.configure_only:
+        stats["success"] += 1
         continue
 
-    if not args.configure_only:
-        for fmt in formats:
-            if system != "Darwin" and fmt == "AU":
-                continue
-            target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
-            if fmt == "Standalone":
-                target = "plugdata_standalone"
-
-            cmake_build = [
-                "cmake",
-                "--build", str(build_dir),
-                "--target", target,
-                "--config Release"
-            ]
-            print(f"Building target: {target}")
-            result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
-            if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
-            else:
-                print(f"Successfully built: {target}")
+    for fmt in formats:
+        if system != "Darwin" and fmt == "AU": continue
+        target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
+        if fmt == "Standalone": target = "plugdata_standalone"
+        cmake_build = ["cmake", "--build", str(build_dir), "--target", target, "--config Release"]
+        print(f"  Building target: {target}")
+        result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
+        if result_build.returncode != 0:
+            print(f"  {clr('ERROR', '91')}: Failed to build target: {target}")
+            stats["failed"] += 1
+        else:
+            print(f"  {clr('SUCCESS', '92')}: Built {target}")
+            stats["success"] += 1
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +263,7 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+print(f"\n{clr('-' * 50, '34')}\n{clr('Build Summary', '34')}")
+print(f"  {clr('Succeeded:', '92')} {stats['success']}\n  {clr('Failed:', '91')}    {stats['failed']}")
+print(clr('-' * 50, '34'))
