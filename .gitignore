@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*$py.class
+Build/
+ninja-*/
+xcode-*/
+visualstudio-*/
+.DS_Store
