@@ -33,19 +33,34 @@ args = parser.parse_args()
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
+# ── Color support ────────────────────────────────────────────────────────────
+
+def clr(text: str, color_code: str) -> str:
+    """Wrap text in ANSI escape codes if the output is a TTY or FORCE_COLOR is set."""
+    use_color = sys.stdout.isatty() or os.environ.get("FORCE_COLOR")
+    if use_color and not os.environ.get("NO_COLOR"):
+        return f"\033[{color_code}m{text}\033[0m"
+    return text
+
+RED = "91"
+GREEN = "92"
+YELLOW = "93"
+BLUE = "34"
+CYAN = "36"
+
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', RED)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', YELLOW)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(f"{clr('FATAL', RED)}: config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
@@ -122,13 +137,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(f"{clr('Build warnings', YELLOW)}:")
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(f"{clr('Build errors – cannot continue', RED)}:")
     for e in errors:
         print(e)
     sys.exit(1)
@@ -170,7 +185,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing', CYAN)}: {clr(name, BLUE)}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +217,7 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{clr('FAILED', RED)}: cmake configure for {name}")
         continue
 
     if not args.configure_only:
@@ -219,12 +234,12 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"{clr('Building target', CYAN)}: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(f"{clr('FAILED', RED)}: build target: {target}")
             else:
-                print(f"Successfully built: {target}")
+                print(f"{clr('SUCCESS', GREEN)}: built: {target}")
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
