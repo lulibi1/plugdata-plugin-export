@@ -284,9 +284,9 @@ for plugin in plugins_config:
             build_summary.append((name, "PARTIAL FAILURE"))
 
 if build_summary:
-    print(clr("\n" + "═" * 40, 34))
+    print(clr("\n" + "=" * 40, 34))
     print(clr("  BUILD SUMMARY", 34))
-    print(clr("═" * 40, 34))
+    print(clr("=" * 40, 34))
     for name, status in build_summary:
         if status == "SUCCESS" or status == "CONFIGURED":
             color = 92 # Green
@@ -295,4 +295,4 @@ if build_summary:
         else:
             color = 91 # Red
         print(f"  {name:<25} : {clr(status, color)}")
-    print(clr("═" * 40, 34))
+    print(clr("=" * 40, 34))
