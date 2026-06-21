@@ -32,8 +32,7 @@ args = parser.parse_args()
 
 def clr(text, code):
     """Simple ANSI color helper."""
-    if os.environ.get("NO_COLOR"):
-        return text
+    if os.environ.get("NO_COLOR"): return text
     if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
         return f"\033[{code}m{text}\033[0m"
     return text
@@ -83,27 +82,12 @@ def validate_plugin(plugin: dict, index: int):
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
 
     path = plugin.get("path")
-    patch = plugin.get("patch")
     if not path:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
     else:
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-
-    if not patch:
-        error(f"{prefix} ({name!r}): missing required field 'patch'.")
-    elif not isinstance(patch, str) or not patch.endswith(".pd"):
-        error(f"{prefix} ({name!r}): 'patch' must be a .pd file (got {patch!r}).")
-    elif path:
-        resolved_path = Path(path).resolve()
-        if resolved_path.is_dir():
-            resolved_patch = resolved_path / patch
-            if not resolved_patch.exists():
-                error(f"{prefix} ({name!r}): patch file '{patch}' not found in directory '{resolved_path}'.")
-        elif resolved_path.is_file():
-            # if it's a file, we assume it's a zip and can't easily check inside without extracting
-            pass
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -282,11 +266,7 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
-
-        if plugin_failed:
-            summary["failed"] += 1
-        else:
-            summary["success"] += 1
+        summary["failed" if plugin_failed else "success"] += 1
 
 if not args.configure_only:
     print(f"\n{clr('Build Summary', 34)}")
