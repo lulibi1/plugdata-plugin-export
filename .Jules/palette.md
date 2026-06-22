@@ -1,0 +1,3 @@
+## 2026-06-22 - CLI Build Summary and Colorization
+**Learning:** For CLI tools performing batch operations (like multi-plugin builds), a color-coded status summary at the end of the execution provides immediate clarity and reduces cognitive load compared to verbose scrolling logs. ANSI color codes should respect environment variables like `NO_COLOR` and `FORCE_COLOR` to ensure compatibility across different terminal environments.
+**Action:** Always include a scannable summary for long-running or batch CLI processes, and ensure ANSI color helper functions check for TTY status and standard override variables.
