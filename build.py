@@ -283,7 +283,7 @@ for plugin in plugins_config:
     else:
         fail_count += 1
 
-print(f"\n{clr('══ Build Summary ══', C_BLUE)}")
+print(f"\n{clr('== Build Summary ==', C_BLUE)}")
 print(f"  {clr('Success', C_GREEN)}: {success_count}")
 if fail_count > 0:
     print(f"  {clr('Failed', C_RED)} : {fail_count}")
