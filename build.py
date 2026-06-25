@@ -36,11 +36,20 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
+def clr(text: str, color_code: str) -> str:
+    """Wrap text in ANSI escape codes if colors are enabled."""
+    use_color = sys.stdout.isatty() or os.environ.get("FORCE_COLOR")
+    if os.environ.get("NO_COLOR"):
+        use_color = False
+    if not use_color:
+        return text
+    return f"\033[{color_code}m{text}\033[0m"
+
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', '91')}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', '93')}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -81,8 +90,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not (resolved.is_file() or resolved.is_dir()):
+            error(f"{prefix} ({name!r}): plugin path exists but is not a file or directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,18 +131,21 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", "36"))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", "91"))
     for e in errors:
         print(e)
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
+
+success_count = 0
+fail_count = 0
 
 system = platform.system()
 if system == "Windows":
@@ -170,7 +182,8 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing:', '36')} {name}")
+    plugin_failed = False
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +215,8 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", "91"))
+        fail_count += 1
         continue
 
     if not args.configure_only:
@@ -219,12 +233,13 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"{clr('Building target:', '36')} {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"Failed to build target: {target}", "91"))
+                plugin_failed = True
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", "92"))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +271,15 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+    if plugin_failed:
+        fail_count += 1
+    else:
+        success_count += 1
+
+# ── Summary ──────────────────────────────────────────────────────────────────
+
+print("\n" + clr("=" * 40, "34"))
+summary_text = f"Build Summary: {success_count} Succeeded, {fail_count} Failed"
+print(clr(summary_text.center(40), "34"))
+print(clr("=" * 40, "34") + "\n")
