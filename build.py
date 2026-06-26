@@ -8,6 +8,22 @@ import argparse
 import re
 import sys
 
+def clr(text, code):
+    """Wrap text in ANSI escape sequences for color."""
+    if os.environ.get("NO_COLOR"):
+        return text
+    if os.environ.get("FORCE_COLOR") or sys.stdout.isatty():
+        return f"\033[{code}m{text}\033[0m"
+    return text
+
+# ANSI Color Codes
+C_RED = "91"
+C_GREEN = "92"
+C_YELLOW = "93"
+C_BLUE = "34"
+C_CYAN = "36"
+C_BOLD = "1"
+
 parser = argparse.ArgumentParser(description="Build plugins with CMake")
 parser.add_argument(
     "--compiler-launcher",
@@ -37,30 +53,30 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', C_RED)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', C_YELLOW)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(f"{clr('FATAL', C_RED)}: config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(f"{clr('FATAL', C_RED)}: config.json is not valid JSON - {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(f"{clr('FATAL', C_RED)}: config.json must contain a JSON array of plugin objects.")
         sys.exit(1)
 
     if len(data) == 0:
-        warn("config.json contains no plugins – nothing to build.")
+        warn("config.json contains no plugins - nothing to build.")
 
     return data
 
@@ -81,8 +97,6 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,13 +136,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(f"{clr('Build warnings', C_YELLOW)}:")
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(f"{clr('Build errors', C_RED)} - cannot continue:")
     for e in errors:
         print(e)
     sys.exit(1)
@@ -157,10 +171,13 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+    print(f"{clr('FATAL', C_RED)}: plugdata directory not found at '{plugdata_dir}'. "
           f"Make sure you're running this script from the repo root and that "
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
+
+total_success = 0
+total_fail = 0
 
 for plugin in plugins_config:
     name = plugin["name"]
@@ -170,7 +187,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing', C_CYAN)}: {clr(name, C_BOLD)}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +219,8 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{clr('Failed', C_RED)} cmake configure for {name}")
+        total_fail += 1
         continue
 
     if not args.configure_only:
@@ -219,12 +237,14 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"{clr('Building target', C_CYAN)}: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(f"{clr('Failed', C_RED)} to build target: {target}")
+                total_fail += 1
             else:
-                print(f"Successfully built: {target}")
+                print(f"{clr('Successfully built', C_GREEN)}: {target}")
+                total_success += 1
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +276,11 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+# -- Final Summary ------------------------------------------------------------
+
+if not args.configure_only:
+    print(f"\n{clr('== Build Summary ==', C_BLUE)}")
+    print(f"  Success: {clr(str(total_success), C_GREEN if total_success > 0 else '0')}")
+    print(f"  Failures: {clr(str(total_fail), C_RED if total_fail > 0 else '0')}")
+    print(clr("===================", C_BLUE))
