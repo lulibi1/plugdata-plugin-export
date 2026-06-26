@@ -68,7 +68,7 @@ def validate_config(path: str) -> list:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"{clr('FATAL', C_RED)}: config.json is not valid JSON – {e}")
+        print(f"{clr('FATAL', C_RED)}: config.json is not valid JSON - {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
@@ -76,7 +76,7 @@ def validate_config(path: str) -> list:
         sys.exit(1)
 
     if len(data) == 0:
-        warn("config.json contains no plugins – nothing to build.")
+        warn("config.json contains no plugins - nothing to build.")
 
     return data
 
@@ -142,7 +142,7 @@ if warnings:
     print()
 
 if errors:
-    print(f"{clr('Build errors', C_RED)} – cannot continue:")
+    print(f"{clr('Build errors', C_RED)} - cannot continue:")
     for e in errors:
         print(e)
     sys.exit(1)
@@ -277,10 +277,10 @@ for plugin in plugins_config:
                         os.remove(dst)
                     shutil.copy2(src, dst)
 
-# ── Final Summary ────────────────────────────────────────────────────────────
+# -- Final Summary ------------------------------------------------------------
 
 if not args.configure_only:
-    print(f"\n{clr('══ Build Summary ══', C_BLUE)}")
+    print(f"\n{clr('== Build Summary ==', C_BLUE)}")
     print(f"  Success: {clr(str(total_success), C_GREEN if total_success > 0 else '0')}")
     print(f"  Failures: {clr(str(total_fail), C_RED if total_fail > 0 else '0')}")
-    print(clr("═══════════════════", C_BLUE))
+    print(clr("===================", C_BLUE))
