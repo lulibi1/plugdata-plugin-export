@@ -35,28 +35,14 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
-results = []  # track build status for the final summary
 
-def clr(text: str, color_code: str) -> str:
-    """Helper to wrap text in ANSI color codes if outputting to a TTY."""
-    if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
-        if os.environ.get("NO_COLOR"):
-            return text
-        return f"\033[{color_code}m{text}\033[0m"
-    return text
+def clr(t: str, c: str) -> str:
+    """ANSI color helper (91:R, 92:G, 93:Y, 34:B, 36:C)"""
+    use_clr = (sys.stdout.isatty() or os.getenv("FORCE_COLOR")) and not os.getenv("NO_COLOR")
+    return f"\033[{c}m{t}\033[0m" if use_clr else t
 
-# ANSI color codes
-RED = "91"
-GREEN = "92"
-YELLOW = "93"
-BLUE = "34"
-CYAN = "36"
-
-def error(msg: str):
-    errors.append(clr(f"  ERROR: {msg}", RED))
-
-def warn(msg: str):
-    warnings.append(clr(f"  WARNING: {msg}", YELLOW))
+def error(m: str): errors.append(clr(f"  ERROR: {m}", "91"))
+def warn(m: str): warnings.append(clr(f"  WARNING: {m}", "93"))
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -136,15 +122,11 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print(clr("Build warnings:", YELLOW))
-    for w in warnings:
-        print(w)
-    print()
-
+    print(clr("Build warnings:", "93"))
+    for w in warnings: print(w)
 if errors:
-    print(clr("Build errors – cannot continue:", RED))
-    for e in errors:
-        print(e)
+    print(clr("Build errors – cannot continue:", "91"))
+    for e in errors: print(e)
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -184,11 +166,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(clr(f"\nProcessing: {name}", CYAN))
-
-    # Track results for this plugin
-    plugin_results = {"name": name, "config": "SKIP", "targets": {}}
-    results.append(plugin_results)
+    print(clr(f"\nProcessing: {name}", "36"))
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -219,11 +197,8 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(clr(f"Failed cmake configure for {name}", RED))
-        plugin_results["config"] = "FAIL"
+        print(clr(f"Failed cmake configure for {name}", "91"))
         continue
-
-    plugin_results["config"] = "OK"
 
     if not args.configure_only:
         for fmt in formats:
@@ -239,14 +214,12 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(clr(f"Building target: {target}", CYAN))
+            print(clr(f"Building target: {target}", "36"))
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(clr(f"Failed to build target: {target}", RED))
-                plugin_results["targets"][fmt] = "FAIL"
+                print(clr(f"Failed to build target: {target}", "91"))
             else:
-                print(clr(f"Successfully built: {target}", GREEN))
-                plugin_results["targets"][fmt] = "OK"
+                print(clr(f"Successfully built: {target}", "92"))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -278,41 +251,3 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
-
-# ── Build Summary ────────────────────────────────────────────────────────────
-
-print(clr("\n" + "="*50, BLUE))
-print(clr("BUILD SUMMARY".center(50), BLUE))
-print(clr("="*50, BLUE))
-
-all_success = True
-for r in results:
-    name = r["name"]
-    config_status = r["config"]
-
-    if config_status == "FAIL":
-        status_str = clr("Config FAILED", RED)
-        all_success = False
-    elif config_status == "SKIP":
-        status_str = clr("SKIPPED", YELLOW)
-    else:
-        status_str = clr("Config OK", GREEN)
-
-    print(f"\nPlugin: {clr(name, CYAN)}")
-    print(f"  Status: {status_str}")
-
-    for fmt, status in r["targets"].items():
-        if status == "OK":
-            print(f"    - {fmt}: {clr('Success', GREEN)}")
-        else:
-            print(f"    - {fmt}: {clr('FAILED', RED)}")
-            all_success = False
-
-print(clr("\n" + "="*50, BLUE))
-if all_success and results:
-    print(clr("All builds completed successfully!".center(50), GREEN))
-elif not results:
-    print(clr("No plugins were processed.".center(50), YELLOW))
-else:
-    print(clr("Some builds failed.".center(50), RED))
-print(clr("="*50 + "\n", BLUE))
