@@ -36,13 +36,19 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
-def clr(t: str, c: str) -> str:
-    """ANSI color helper (91:R, 92:G, 93:Y, 34:B, 36:C)"""
-    use_clr = (sys.stdout.isatty() or os.getenv("FORCE_COLOR")) and not os.getenv("NO_COLOR")
-    return f"\033[{c}m{t}\033[0m" if use_clr else t
+def clr(text: str, color_code: str) -> str:
+    """Helper to wrap text in ANSI color codes if outputting to a TTY."""
+    if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
+        if os.environ.get("NO_COLOR"):
+            return text
+        return f"\033[{color_code}m{text}\033[0m"
+    return text
 
-def error(m: str): errors.append(clr(f"  ERROR: {m}", "91"))
-def warn(m: str): warnings.append(clr(f"  WARNING: {m}", "93"))
+def error(msg: str):
+    errors.append(clr(f"  ERROR: {msg}", "91"))
+
+def warn(msg: str):
+    warnings.append(clr(f"  WARNING: {msg}", "93"))
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -123,10 +129,14 @@ for i, plugin in enumerate(plugins_config):
 
 if warnings:
     print(clr("Build warnings:", "93"))
-    for w in warnings: print(w)
+    for w in warnings:
+        print(w)
+    print()
+
 if errors:
     print(clr("Build errors – cannot continue:", "91"))
-    for e in errors: print(e)
+    for e in errors:
+        print(e)
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -176,6 +186,7 @@ for plugin in plugins_config:
 
     cmake_configure = [
         "cmake",
+        "-GNinja",
         *cmake_generator,
         *cmake_compiler,
         f"-B{build_dir}",
