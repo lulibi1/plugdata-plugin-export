@@ -246,6 +246,7 @@ for plugin in plugins_config:
             if result_build.returncode != 0:
                 print(clr(f"Failed to build target: {target}", CLR_RED))
                 build_summary.append((name, target, False))
+                continue
             else:
                 print(clr(f"Successfully built: {target}", CLR_GREEN))
                 build_summary.append((name, target, True))
