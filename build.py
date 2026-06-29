@@ -281,7 +281,7 @@ for plugin in plugins_config:
 
 # ── Build summary ────────────────────────────────────────────────────────────
 
-print(f"\n{clr('══ Build Summary ══', BLUE)}")
+print(f"\n{clr('== Build Summary ==', BLUE)}")
 print(f"Total processed: {success_count + failure_count}")
 print(f"Success:         {clr(success_count, GREEN)}")
 print(f"Failure:         {clr(failure_count, RED if failure_count > 0 else '0')}")
