@@ -283,9 +283,9 @@ for plugin in plugins_config:
 # ── Build Summary ───────────────────────────────────────────────────────────
 
 if build_results:
-    print(f"\n{clr('═' * 50, BLUE)}")
+    print(f"\n{clr('=' * 50, BLUE)}")
     print(f" {clr('BUILD SUMMARY', BOLD)}")
-    print(f"{clr('═' * 50, BLUE)}")
+    print(f"{clr('=' * 50, BLUE)}")
 
     max_plugin_len = max(len(r["plugin"]) for r in build_results)
     max_target_len = max(len(r["target"]) for r in build_results)
@@ -301,4 +301,4 @@ if build_results:
 
         print(f" {plugin}  {target}  {status}")
 
-    print(f"{clr('═' * 50, BLUE)}\n")
+    print(f"{clr('=' * 50, BLUE)}\n")
