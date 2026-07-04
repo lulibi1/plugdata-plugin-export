@@ -12,7 +12,7 @@ import sys
 
 def clr(text: str, color_code: str) -> str:
     """Wraps text in ANSI escape codes if stdout is a TTY or FORCE_COLOR is set."""
-    if os.environ.get("NO_COLOR"):
+    if "NO_COLOR" in os.environ:
         return text
     if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
         return f"\033[{color_code}m{text}\033[0m"
@@ -287,8 +287,8 @@ if build_results:
     print(clr('='*50, BLUE))
 
     # Calculate column widths
-    name_w = max(len(row[0]) for row in build_results) + 2
-    target_w = max(len(row[1]) for row in build_results) + 2
+    name_w = max(max(len(row[0]) for row in build_results), 6) + 2
+    target_w = max(max(len(row[1]) for row in build_results), 6) + 2
 
     header = f"{'Plugin':<{name_w}} | {'Target':<{target_w}} | Status"
     print(clr(header, BOLD))
