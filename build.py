@@ -237,8 +237,8 @@ for plugin in plugins_config:
                     shutil.copy2(src, dst)
 
 if results:
-    print(f"\n{clr('─' * 50, 34)}\n{clr('BUILD SUMMARY', 1, 34).center(50)}\n{clr('─' * 50, 34)}")
+    print(f"\n{clr('=' * 50, 34)}\n{clr('BUILD SUMMARY', 1, 34).center(50)}\n{clr('=' * 50, 34)}")
     pw = max([len(r['p']) for r in results] + [6]); tw = max([len(r['t']) for r in results] + [6])
     print(clr(f"{'Plugin':<{pw}} | {'Target':<{tw}} | Status", 1) + f"\n{'-' * (pw+tw+12)}")
     for r in results: print(f"{r['p'] :<{pw}} | {r['t'] :<{tw}} | {r['s']}")
-    print(clr("─" * 50, 34))
+    print(clr('=' * 50, 34))
