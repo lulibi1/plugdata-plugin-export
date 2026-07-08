@@ -271,7 +271,7 @@ for plugin in plugins_config:
                     shutil.copy2(src, dst)
 
 if build_results:
-    print(f"\n{clr('═══ Build Summary ═══', 1, 34)}")
+    print(f"\n{clr('=== Build Summary ===', 1, 34)}")
     # Calculate column widths
     p_width = max(len("Plugin"), max(len(r[0]) for r in build_results))
     t_width = max(len("Target"), max(len(r[1]) for r in build_results))
@@ -285,4 +285,4 @@ if build_results:
 
     for p_name, t_name, status in build_results:
         print(f"{p_name.ljust(p_width)}   {t_name.ljust(t_width)}   {status}")
-    print(clr("═" * (p_width + t_width + 12), 34))
+    print(clr("=" * (p_width + t_width + 12), 34))
