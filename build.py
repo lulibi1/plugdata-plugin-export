@@ -192,7 +192,6 @@ for plugin in plugins_config:
 
     cmake_configure = [
         "cmake",
-        "-GNinja",
         *cmake_generator,
         *cmake_compiler,
         f"-B{build_dir}",
@@ -275,9 +274,9 @@ for plugin in plugins_config:
 # ── Build Summary Table ─────────────────────────────────────────────────────
 
 if build_results:
-    print(f"\n{clr('══ Build Summary ══', 1, 34)}")
-    p_width = max(len(r[0]) for r in build_results)
-    t_width = max(len(r[1]) for r in build_results)
+    print(f"\n{clr('== Build Summary ==', 1, 34)}")
+    p_width = max(max(len(r[0]) for r in build_results), len("Plugin"))
+    t_width = max(max(len(r[1]) for r in build_results), len("Target"))
 
     p_header = "Plugin".ljust(p_width)
     t_header = "Target".ljust(t_width)
@@ -286,4 +285,4 @@ if build_results:
 
     for plugin_name, target, status in build_results:
         print(f"{plugin_name.ljust(p_width)} | {target.ljust(t_width)} | {status}")
-    print(f"{clr('═══════════════════', 1, 34)}")
+    print(f"{clr('=' * (p_width + t_width + 12), 1, 34)}")
