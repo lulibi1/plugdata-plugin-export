@@ -269,7 +269,7 @@ for plugin in plugins_config:
                     shutil.copy2(src, dst)
 
 if build_results:
-    print(f"\n{clr('══ Build Summary ══', 1, 34)}")
+    print(f"\n{clr('== Build Summary ==', 1, 34)}")
     p_width = max(len(r[0]) for r in build_results)
     p_width = max(p_width, 6) # "Plugin"
     t_width = max(len(r[1]) for r in build_results)
