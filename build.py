@@ -8,6 +8,23 @@ import argparse
 import re
 import sys
 
+# ── ANSI Color Support ──────────────────────────────────────────────────────
+
+def clr(text: str, *codes: int) -> str:
+    """Helper to wrap text in ANSI escape codes, respecting NO_COLOR/FORCE_COLOR."""
+    if "NO_COLOR" in os.environ:
+        return text
+    if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
+        return f"\033[{';'.join(map(str, codes))}m{text}\033[0m"
+    return text
+
+C_RED    = 91
+C_GREEN  = 92
+C_YELLOW = 93
+C_BLUE   = 34
+C_CYAN   = 36
+C_BOLD   = 1
+
 parser = argparse.ArgumentParser(description="Build plugins with CMake")
 parser.add_argument(
     "--compiler-launcher",
@@ -37,26 +54,26 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', C_RED)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', C_YELLOW)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(f"{clr('FATAL', C_RED, C_BOLD)}: config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(f"{clr('FATAL', C_RED, C_BOLD)}: config.json is not valid JSON – {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(f"{clr('FATAL', C_RED, C_BOLD)}: config.json must contain a JSON array of plugin objects.")
         sys.exit(1)
 
     if len(data) == 0:
@@ -81,8 +98,7 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        # Note: path can be a folder or a .zip file as per README
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,13 +138,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", C_YELLOW, C_BOLD))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", C_RED, C_BOLD))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -157,10 +173,12 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+    print(f"{clr('FATAL', C_RED, C_BOLD)}: plugdata directory not found at '{plugdata_dir}'. "
           f"Make sure you're running this script from the repo root and that "
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
+
+build_results = []
 
 for plugin in plugins_config:
     name = plugin["name"]
@@ -170,7 +188,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing', C_CYAN, C_BOLD)}: {name}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +220,8 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{clr('FAILED', C_RED)} cmake configure for {name}")
+        build_results.append((name, "Configure", clr("FAILED", C_RED)))
         continue
 
     if not args.configure_only:
@@ -219,12 +238,14 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"Building target: {clr(target, C_CYAN)}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(f"{clr('FAILED', C_RED)} to build target: {target}")
+                build_results.append((name, target, clr("FAILED", C_RED)))
             else:
-                print(f"Successfully built: {target}")
+                print(f"{clr('SUCCESS', C_GREEN)}: {target}")
+                build_results.append((name, target, clr("SUCCESS", C_GREEN)))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +277,24 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+# ── Build Summary ───────────────────────────────────────────────────────────
+
+if build_results:
+    print(f"\n{clr('Build Summary', C_BOLD, C_BLUE)}")
+
+    p_width = max(max(len(r[0]) for r in build_results), len("Plugin"))
+    t_width = max(max(len(r[1]) for r in build_results), len("Target"))
+    line_len = p_width + t_width + 12
+
+    print("=" * line_len)
+    # Pad strings before coloring to ensure alignment regardless of ANSI codes
+    h_p = clr(f"{'Plugin':<{p_width}}", C_BOLD)
+    h_t = clr(f"{'Target':<{t_width}}", C_BOLD)
+    h_s = clr("Status", C_BOLD)
+    print(f"{h_p} | {h_t} | {h_s}")
+    print("-" * line_len)
+
+    for p, t, s in build_results:
+        print(f"{p:<{p_width}} | {t:<{t_width}} | {s}")
+    print("=" * line_len)
