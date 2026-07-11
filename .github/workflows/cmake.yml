@@ -146,11 +146,11 @@ jobs:
 
       - name: Install Dependencies (zypper)
         if: ${{ matrix.pacman == 'zypper' }}
-        run: zypper refresh && zypper install -y git rsync wget bzip2 xz tar cmake alsa-devel libXinerama-devel libXi-devel libcurl-devel libXcomposite-devel freeglut-devel libXrandr-devel libXcursor-devel freetype2-devel gcc gcc-c++ curl ccache python3 libjack-devel gawk unzip ninja
+        run: zypper refresh && zypper --non-interactive install -y git rsync wget bzip2 xz tar cmake alsa-devel libXinerama-devel libXi-devel libcurl-devel libXcomposite-devel freeglut-devel libXrandr-devel libXcursor-devel freetype2-devel gcc gcc-c++ curl ccache python3 libjack-devel gawk unzip ninja
 
       - name: Install Dependencies (pacman)
         if: ${{ matrix.pacman == 'pacman' }}
-        run: pacman -Sy && pacman -S --noconfirm cmake wget bzip2 git alsa-lib freetype2 libx11 libxcursor libxi libxext libxinerama libxrandr libxrender webkit2gtk cmake make gcc pkgconf python python-pip curl ccache freeglut mesa glfw-x11 glew jack2 openssl unzip ninja && pacman --noconfirm -Syu
+        run: pacman -Sy && pacman -S --noconfirm cmake wget bzip2 git alsa-lib freetype2 libx11 libxcursor libxi libxext libxinerama libxrandr libxrender webkit2gtk-4.1 cmake make gcc pkgconf python python-pip curl ccache freeglut mesa glfw-x11 glew jack2 openssl unzip ninja && pacman --noconfirm -Syu
 
       - uses: actions/checkout@v4
         with:
