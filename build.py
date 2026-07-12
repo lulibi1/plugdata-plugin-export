@@ -28,6 +28,12 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+def clr(t, *c):
+    """Helper to wrap text in ANSI escape codes."""
+    if not sys.stdout.isatty() and not os.environ.get("FORCE_COLOR"): return t
+    if os.environ.get("NO_COLOR"): return t
+    return f"\033[{';'.join(map(str, c))}m{t}\033[0m"
+
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
@@ -37,10 +43,10 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', 91)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', 93)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -81,8 +87,7 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        # path can be file or dir (e.g. .zip) per README
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -162,6 +167,8 @@ if not plugdata_dir.is_dir():
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
+build_results = []
+
 for plugin in plugins_config:
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
@@ -170,7 +177,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing', 36)}: {clr(name, 1)}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -201,58 +208,53 @@ for plugin in plugins_config:
         cmake_configure.append(f"-DCMAKE_CXX_COMPILER_LAUNCHER={args.compiler_launcher}")
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
+    cfg_status = clr("SUCCESS", 92) if result_configure.returncode == 0 else clr("FAILED", 91)
+    build_results.append({"p": name, "t": "CMake Config", "s": cfg_status})
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{clr('Failed', 91)} cmake configure for {name}")
         continue
 
     if not args.configure_only:
         for fmt in formats:
-            if system != "Darwin" and fmt == "AU":
-                continue
+            if system != "Darwin" and fmt == "AU": continue
             target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
-            if fmt == "Standalone":
-                target = "plugdata_standalone"
+            if fmt == "Standalone": target = "plugdata_standalone"
 
-            cmake_build = [
-                "cmake",
-                "--build", str(build_dir),
-                "--target", target,
-                "--config Release"
-            ]
+            cmake_build = ["cmake", "--build", str(build_dir), "--target", target, "--config Release"]
             print(f"Building target: {target}")
-            result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
-            if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
-            else:
-                print(f"Successfully built: {target}")
+            res = subprocess.run(cmake_build, cwd=plugdata_dir)
+            status = clr("SUCCESS", 92) if res.returncode == 0 else clr("FAILED", 91)
+            build_results.append({"p": name, "t": target, "s": status})
+            if res.returncode != 0:
+                print(f"{clr('Failed', 91)} to build target: {target}")
+                continue
+            print(f"{clr('Successfully', 92)} built: {target}")
+
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
             if fmt == "Standalone":
                 if os.path.isdir(format_path):
-                    if os.path.exists(target_dir):
-                        shutil.rmtree(target_dir)
+                    if os.path.exists(target_dir): shutil.rmtree(target_dir)
                     shutil.copytree(format_path, target_dir)
             else:
-                extension = ""
-                if fmt == "VST3":
-                    extension = ".vst3"
-                elif fmt == "AU":
-                    extension = ".component"
-                elif fmt == "LV2":
-                    extension = ".lv2"
-                elif fmt == "CLAP":
-                    extension = ".clap"
-
+                extension = { "VST3": ".vst3", "AU": ".component", "LV2": ".lv2", "CLAP": ".clap" }.get(fmt, "")
                 plugin_filename = name + extension
                 os.makedirs(target_dir, exist_ok=True)
-                src = os.path.join(format_path, plugin_filename)
-                dst = os.path.join(target_dir, plugin_filename)
+                src, dst = os.path.join(format_path, plugin_filename), os.path.join(target_dir, plugin_filename)
                 if os.path.isdir(src):
-                    if os.path.exists(dst):
-                        shutil.rmtree(dst)
+                    if os.path.exists(dst): shutil.rmtree(dst)
                     shutil.copytree(src, dst)
                 else:
-                    if os.path.exists(dst):
-                        os.remove(dst)
+                    if os.path.exists(dst): os.remove(dst)
                     shutil.copy2(src, dst)
+
+if build_results:
+    print(f"\n{clr('Build Summary', 1, 34)}")
+    pw, tw = max(6, max(len(r["p"]) for r in build_results)), max(6, max(len(r["t"]) for r in build_results))
+    sep = f"|{'-'*(pw+2)}|{'-'*(tw+2)}|{'-'*10}|"
+    print(f"{sep}\n| {'Plugin':<{pw}} | {'Target':<{tw}} | {'Status':<8} |\n{sep}")
+    for r in build_results:
+        st = "SUCCESS" if "SUCCESS" in r["s"] else "FAILED"
+        print(f"| {r['p']:<{pw}} | {r['t']:<{tw}} | {r['s']} {' '*(8-len(st))}|")
+    print(sep)
