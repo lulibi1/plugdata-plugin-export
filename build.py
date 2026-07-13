@@ -33,14 +33,21 @@ args = parser.parse_args()
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
+# ANSI color helper
+def clr(text: str, *codes: int) -> str:
+    use_color = (sys.stdout.isatty() or os.environ.get("FORCE_COLOR")) and not os.environ.get("NO_COLOR")
+    if not use_color: return text
+    return f"\033[{';'.join(map(str, codes))}m{text}\033[0m"
+
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
+build_results = [] # Track success/failure for summary
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR', 91)}: {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING', 93)}: {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
@@ -81,8 +88,7 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        # Field accepts both files (.zip) and directories
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -170,7 +176,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing', 1, 36)}: {clr(name, 1)}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,8 +208,12 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{clr('Failed', 91)} cmake configure for {name}")
+        build_results.append((name, "Configure", "FAILED"))
         continue
+
+    if args.configure_only:
+        build_results.append((name, "Configure", "SUCCESS"))
 
     if not args.configure_only:
         for fmt in formats:
@@ -219,12 +229,14 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"{clr('Building', 36)} target: {clr(target, 1)}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(f"{clr('Failed', 91)} to build target: {target}")
+                build_results.append((name, target, "FAILED"))
             else:
-                print(f"Successfully built: {target}")
+                print(f"{clr('Successfully built', 92)}: {target}")
+                build_results.append((name, target, "SUCCESS"))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +268,19 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+# ── Build Summary ────────────────────────────────────────────────────────────
+
+if build_results:
+    print(f"\n{clr('== Build Summary ==', 1, 34)}")
+    p_width = max(max(len(r[0]) for r in build_results), len("Plugin"))
+    t_width = max(max(len(r[1]) for r in build_results), len("Target"))
+
+    header = f"  {'Plugin':<{p_width}} | {'Target':<{t_width}} | Status"
+    print(clr(header, 1))
+    print("  " + "-" * (p_width + t_width + 12))
+
+    for plugin_name, target, status in build_results:
+        status_clr = 92 if status == "SUCCESS" else 91
+        print(f"  {plugin_name:<{p_width}} | {target:<{t_width}} | {clr(status, status_clr)}")
+    print("  " + "-" * (p_width + t_width + 12))
