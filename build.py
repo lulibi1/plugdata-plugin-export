@@ -272,15 +272,15 @@ for plugin in plugins_config:
 # ── Build Summary ────────────────────────────────────────────────────────────
 
 if build_results:
-    print(f"\n{clr('══ Build Summary ══', 1, 34)}")
+    print(f"\n{clr('== Build Summary ==', 1, 34)}")
     p_width = max(max(len(r[0]) for r in build_results), len("Plugin"))
     t_width = max(max(len(r[1]) for r in build_results), len("Target"))
 
     header = f"  {'Plugin':<{p_width}} | {'Target':<{t_width}} | Status"
     print(clr(header, 1))
-    print("  " + "─" * (p_width + t_width + 12))
+    print("  " + "-" * (p_width + t_width + 12))
 
     for plugin_name, target, status in build_results:
         status_clr = 92 if status == "SUCCESS" else 91
         print(f"  {plugin_name:<{p_width}} | {target:<{t_width}} | {clr(status, status_clr)}")
-    print("  " + "─" * (p_width + t_width + 12))
+    print("  " + "-" * (p_width + t_width + 12))
