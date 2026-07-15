@@ -9,3 +9,7 @@ This journal tracks critical UX and accessibility learnings discovered during th
 ## 2024-07-15 - Audio Plugin Path Validation
 **Learning:** Audio plugin "paths" are often directories (bundles like .vst3, .component, or macOS .app folders), so validation logic must allow for both files and directories to avoid frustrating false-positive errors.
 **Action:** Use `.exists()` instead of `.is_file()` when validating paths that might be directory-based bundles.
+
+## 2024-07-15 - Arch Linux Package Naming
+**Learning:** On Arch Linux, the required package for webkit support in plugdata plugins is `webkit2gtk-4.1`. The generic `webkit2gtk` package is outdated or unavailable in core repositories.
+**Action:** Use `webkit2gtk-4.1` in `pacman` installation commands for projects requiring webkit support.
