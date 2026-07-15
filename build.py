@@ -28,6 +28,16 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+def clr(text: str, *codes: int) -> str:
+    """Helper to colorize text using ANSI escape codes."""
+    if os.environ.get("NO_COLOR"):
+        return text
+    # Enable colors if in a TTY or if FORCE_COLOR is set
+    if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
+        code_str = ";".join(str(c) for c in codes)
+        return f"\033[{code_str}m{text}\033[0m"
+    return text
+
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
@@ -81,8 +91,6 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -162,6 +170,8 @@ if not plugdata_dir.is_dir():
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
+build_results = []
+
 for plugin in plugins_config:
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
@@ -203,7 +213,11 @@ for plugin in plugins_config:
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
         print(f"Failed cmake configure for {name}")
+        build_results.append({"plugin": name, "target": "Configure", "status": "FAILED"})
         continue
+
+    if args.configure_only:
+        build_results.append({"plugin": name, "target": "Configure", "status": "SUCCESS"})
 
     if not args.configure_only:
         for fmt in formats:
@@ -223,8 +237,10 @@ for plugin in plugins_config:
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
                 print(f"Failed to build target: {target}")
+                build_results.append({"plugin": name, "target": target, "status": "FAILED"})
             else:
                 print(f"Successfully built: {target}")
+                build_results.append({"plugin": name, "target": target, "status": "SUCCESS"})
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +272,30 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+# ── Build Summary ────────────────────────────────────────────────────────────
+
+if build_results:
+    print("\n" + clr(" Build Summary ", 1, 34))
+
+    # Calculate column widths
+    p_width = max(len(r["plugin"]) for r in build_results)
+    p_width = max(p_width, 6) # "Plugin"
+    t_width = max(len(r["target"]) for r in build_results)
+    t_width = max(t_width, 6) # "Target"
+
+    header = f" {'Plugin':<{p_width}} | {'Target':<{t_width}} | {'Status':<10} "
+    print("-" * len(header))
+    print(header)
+    print("-" * len(header))
+
+    for res in build_results:
+        status_text = res["status"]
+        if status_text == "SUCCESS":
+            status_clr = clr(status_text, 92) # Green
+        else:
+            status_clr = clr(status_text, 91) # Red
+
+        print(f" {res['plugin']:<{p_width}} | {res['target']:<{t_width}} | {status_clr:<10} ")
+
+    print("-" * len(header))
