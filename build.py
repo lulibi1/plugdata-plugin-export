@@ -28,6 +28,15 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# ── ANSI coloring helper ────────────────────────────────────────────────────
+
+def clr(t: str, *c) -> str:
+    if "NO_COLOR" not in os.environ and (sys.stdout.isatty() or "FORCE_COLOR" in os.environ):
+        return f"\033[{';'.join(map(str, c))}m{t}\033[0m"
+    return t
+
+build_results = []
+
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
@@ -81,8 +90,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not (resolved.is_file() or resolved.is_dir()):
+            error(f"{prefix} ({name!r}): plugin path exists but is not a file or directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,15 +131,15 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", 1, 93))
     for w in warnings:
-        print(w)
+        print(clr(w, 93))
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", 1, 91))
     for e in errors:
-        print(e)
+        print(clr(e, 91))
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -170,7 +179,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing:', 36)} {clr(name, 1)}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -201,8 +210,10 @@ for plugin in plugins_config:
         cmake_configure.append(f"-DCMAKE_CXX_COMPILER_LAUNCHER={args.compiler_launcher}")
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
-    if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+    status = "SUCCESS" if result_configure.returncode == 0 else "FAILED"
+    build_results.append({"plugin": name, "target": "Configure", "status": status})
+    if status == "FAILED":
+        print(clr(f"Failed cmake configure for {name}", 91))
         continue
 
     if not args.configure_only:
@@ -219,12 +230,14 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"{clr('Building target:', 36)} {clr(target, 1)}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
-            if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+            status_b = "SUCCESS" if result_build.returncode == 0 else "FAILED"
+            build_results.append({"plugin": name, "target": fmt, "status": status_b})
+            if status_b == "FAILED":
+                print(clr(f"Failed to build target: {target}", 91))
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", 92))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +269,18 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+# ── Print build summary ──────────────────────────────────────────────────────
+
+if build_results:
+    p_w = max(max(len(r["plugin"]) for r in build_results), 6)
+    t_w = max(max(len(r["target"]) for r in build_results), 6)
+    sep_len = p_w + t_w + 12
+    print("\n" + clr("=" * 40, 1, 34) + "\n" + clr("         BUILD SUMMARY", 1, 34) + "\n" + clr("=" * 40, 1, 34))
+    print(clr(f"|{'Plugin':<{p_w}}|{'Target':<{t_w}}|Status  |", 1, 34))
+    print(clr("-" * sep_len, 34))
+    for r in build_results:
+        color = 92 if r["status"] == "SUCCESS" else 91
+        pad = " " * max(0, 8 - len(r["status"]))
+        print(f"|{r['plugin']:<{p_w}}|{r['target']:<{t_w}}|{clr(r['status'], color)}{pad}|")
+    print(clr("=" * sep_len, 1, 34))
