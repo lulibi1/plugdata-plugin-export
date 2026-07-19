@@ -1,0 +1,3 @@
+## 2026-04-12 - Handling Non-Printing ANSI Sequences in CLI Tables
+**Learning:** For command-line developer experience (DX), summary tables are extremely effective for batch operations. However, using ANSI color-coded text inside standard Python format strings (e.g. `f"{text:<10}"`) breaks columns visual alignment because Python counts the non-printing escape sequences in character width calculations.
+**Action:** Always compute padding length manually for colorized columns based on the raw/uncolored string length (`padding = " " * (expected_len - len(raw_text))`), and append the padding to the colorized string to maintain pixel-perfect terminal layout alignment.
