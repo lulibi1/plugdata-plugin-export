@@ -1,0 +1,3 @@
+## 2025-07-20 - CLI Table Alignment with ANSI Colors
+**Learning:** ANSI color escape sequences are invisible to standard character-width functions (like Python's `len()`). When formatting terminal summary tables dynamically, column widths and status padding must be calculated based on the raw plain-text length, rather than the length of strings containing colorized escape characters, to prevent column misalignment.
+**Action:** Always compute layout-related padding and border lengths using the uncolored, plain-text strings, and apply color escape sequences dynamically to the values within the formatted columns afterwards.
