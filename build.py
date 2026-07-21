@@ -130,13 +130,13 @@ for i, plugin in enumerate(plugins_config):
 if warnings:
     print(clr("Build warnings:", 1, 93))
     for w in warnings:
-        print(clr(w, 93))
+        print(w)
     print()
 
 if errors:
     print(clr("Build errors – cannot continue:", 1, 91))
     for e in errors:
-        print(clr(e, 91))
+        print(e)
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
