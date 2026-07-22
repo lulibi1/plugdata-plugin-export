@@ -1,0 +1,3 @@
+## 2023-11-23 - CLI Validation Feedback Loop
+**Learning:** In automated development and CI environments (which lack a visual UI), validation feedback *is* the UX. Failing early with precise error messages prevents wasted compute time on failing compiler steps and guides the developer exactly to what is wrong with their configuration. Specifically, accepting both directory and archive formats for paths ensures maximum flexibility and matches user expectations without imposing artificial constraints.
+**Action:** When validating configurations or user-supplied parameters in CLI-driven frameworks, always check for file format compatibility, unique keys, and standard file/directory type constraints before initiating resource-heavy operations.

@@ -64,7 +64,7 @@ def validate_config(path: str) -> list:
 
     return data
 
-def validate_plugin(plugin: dict, index: int):
+def validate_plugin(plugin: dict, index: int, seen_names: set):
     prefix = f"Plugin[{index}]"
 
     # ── Required fields ──────────────────────────────────────────────────────
@@ -73,6 +73,12 @@ def validate_plugin(plugin: dict, index: int):
         error(f"{prefix}: missing required field 'name'.")
     elif not isinstance(name, str) or not name.strip():
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
+    else:
+        name_stripped = name.strip()
+        if name_stripped in seen_names:
+            error(f"{prefix}: plugin name '{name_stripped}' is not unique (already used).")
+        else:
+            seen_names.add(name_stripped)
 
     path = plugin.get("path")
     if not path:
@@ -81,8 +87,16 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not (resolved.is_file() or resolved.is_dir()):
+            error(f"{prefix} ({name!r}): plugin path exists but is neither a file nor a directory: '{resolved}'")
+
+    patch = plugin.get("patch")
+    if not patch:
+        error(f"{prefix} ({name!r}): missing required field 'patch'.")
+    elif not isinstance(patch, str) or not patch.strip():
+        error(f"{prefix} ({name!r}): 'patch' must be a non-empty string (got {patch!r}).")
+    elif not patch.strip().endswith(".pd"):
+        error(f"{prefix} ({name!r}): 'patch' must end with '.pd' (got {patch!r}).")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -115,11 +129,12 @@ def validate_plugin(plugin: dict, index: int):
 
 plugins_config = validate_config("config.json")
 
+seen_names = set()
 for i, plugin in enumerate(plugins_config):
     if not isinstance(plugin, dict):
         error(f"Plugin[{i}]: expected an object, got {type(plugin).__name__}.")
         continue
-    validate_plugin(plugin, i)
+    validate_plugin(plugin, i, seen_names)
 
 if warnings:
     print("Build warnings:")
