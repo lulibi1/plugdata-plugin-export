@@ -1,0 +1,3 @@
+## 2024-07-24 - CLI UX & Dev Experience (DX) for Multi-Target Builds
+**Learning:** When building automation pipelines or CLI tools that run multi-step/multi-target builds (such as multi-format plugins), verbose or standard white text outputs can lead to cognitive fatigue and make it extremely difficult to identify which target failed. Adding a beautifully aligned, ASCII-compatible, color-coded summary table at the end of the run greatly improves developers' scanning speed and reduces frustration.
+**Action:** Always provide standard ANSI escape sequence helpers (`clr`) that respect standard toggles (`NO_COLOR` and `FORCE_COLOR`) and interactive TTY checks, and output a concise, structured status report table upon build completion.

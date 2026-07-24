@@ -8,6 +8,15 @@ import argparse
 import re
 import sys
 
+def clr(text: str, *codes) -> str:
+    """Helper function for color-coded terminal output."""
+    if "NO_COLOR" in os.environ:
+        return text
+    if sys.stdout.isatty() or "FORCE_COLOR" in os.environ:
+        code_str = ";".join(str(c) for c in codes)
+        return f"\033[{code_str}m{text}\033[0m"
+    return text
+
 parser = argparse.ArgumentParser(description="Build plugins with CMake")
 parser.add_argument(
     "--compiler-launcher",
@@ -45,18 +54,18 @@ def warn(msg: str):
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(clr(f"FATAL: config.json not found at '{os.path.abspath(path)}'", 91))
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(clr(f"FATAL: config.json is not valid JSON – {e}", 91))
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(clr("FATAL: config.json must contain a JSON array of plugin objects.", 91))
         sys.exit(1)
 
     if len(data) == 0:
@@ -81,8 +90,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not (resolved.is_file() or resolved.is_dir()):
+            error(f"{prefix} ({name!r}): plugin path exists but is neither a file nor a directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,15 +131,15 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", 1, 93))
     for w in warnings:
-        print(w)
+        print(clr(w, 93))
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", 1, 91))
     for e in errors:
-        print(e)
+        print(clr(e, 91))
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -157,10 +166,12 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+    print(clr(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
           f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+          f"the plugdata submodule has been initialised (git submodule update --init).", 91))
     sys.exit(1)
+
+build_results = []
 
 for plugin in plugins_config:
     name = plugin["name"]
@@ -170,7 +181,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(clr(f"\nProcessing: {name}", 36))
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,8 +213,19 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", 91))
+        build_results.append({
+            "plugin": name,
+            "target": "CMake Configure",
+            "status": "FAILED"
+        })
         continue
+    else:
+        build_results.append({
+            "plugin": name,
+            "target": "CMake Configure",
+            "status": "SUCCESS"
+        })
 
     if not args.configure_only:
         for fmt in formats:
@@ -219,12 +241,22 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(clr(f"Building target: {target}", 36))
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"Failed to build target: {target}", 91))
+                build_results.append({
+                    "plugin": name,
+                    "target": target,
+                    "status": "FAILED"
+                })
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", 92))
+                build_results.append({
+                    "plugin": name,
+                    "target": target,
+                    "status": "SUCCESS"
+                })
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +288,32 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+if build_results:
+    print(clr("\nBuild Summary", 1, 34))
+
+    p_width = max(len("Plugin"), max((len(r["plugin"]) for r in build_results), default=0))
+    t_width = max(len("Target"), max((len(r["target"]) for r in build_results), default=0))
+
+    header_plugin = clr(f"{'Plugin':<{p_width}}", 1)
+    header_target = clr(f"{'Target':<{t_width}}", 1)
+    header_status = clr(f"{'Status':<8}", 1)
+
+    border_len = p_width + t_width + 12
+    border = "=" * border_len
+    separator = "-" * border_len
+
+    print(border)
+    print(f"|{header_plugin}|{header_target}|{header_status}|")
+    print(separator)
+    for r in build_results:
+        st = r["status"]
+        if st == "SUCCESS":
+            colored_st = clr(st, 92)
+        else:
+            colored_st = clr(st, 91)
+        padded_st = colored_st + " " * (8 - len(st))
+        print(f"|{r['plugin']:<{p_width}}|{r['target']:<{t_width}}|{padded_st}|")
+    print(border)
+
+sys.exit(0)
