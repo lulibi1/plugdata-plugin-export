@@ -30,6 +30,15 @@ args = parser.parse_args()
 
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
+def clr(t, *c):
+    """Helper to colorize text with ANSI codes."""
+    if "NO_COLOR" in os.environ:
+        return t
+    if sys.stdout.isatty() or os.environ.get("FORCE_COLOR"):
+        codes = ";".join(str(x) for x in c)
+        return f"\033[{codes}m{t}\033[0m"
+    return t
+
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -37,26 +46,26 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(clr(f"  ERROR: {msg}", 1, 91))
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(clr(f"  WARNING: {msg}", 93))
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(clr(f"FATAL: config.json not found at '{os.path.abspath(path)}'", 1, 91))
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(clr(f"FATAL: config.json is not valid JSON – {e}", 1, 91))
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(clr("FATAL: config.json must contain a JSON array of plugin objects.", 1, 91))
         sys.exit(1)
 
     if len(data) == 0:
@@ -81,8 +90,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not resolved.is_file() and not resolved.is_dir():
+            error(f"{prefix} ({name!r}): plugin path exists but is neither a file nor a directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,13 +131,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", 1, 93))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", 1, 91))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -157,10 +166,12 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+    print(clr(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
           f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+          f"the plugdata submodule has been initialised (git submodule update --init).", 1, 91))
     sys.exit(1)
+
+build_results = []
 
 for plugin in plugins_config:
     name = plugin["name"]
@@ -170,7 +181,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(clr(f"\nProcessing: {name}", 36))
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,57 +213,91 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", 91))
+        build_results.append({"plugin": name, "target": "Configure", "status": "FAILED"})
         continue
 
-    if not args.configure_only:
-        for fmt in formats:
-            if system != "Darwin" and fmt == "AU":
-                continue
-            target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
-            if fmt == "Standalone":
-                target = "plugdata_standalone"
+    if args.configure_only:
+        build_results.append({"plugin": name, "target": "Configure", "status": "SUCCESS"})
+        continue
 
-            cmake_build = [
-                "cmake",
-                "--build", str(build_dir),
-                "--target", target,
-                "--config Release"
-            ]
-            print(f"Building target: {target}")
-            result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
-            if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+    for fmt in formats:
+        if system != "Darwin" and fmt == "AU":
+            continue
+        target = f"plugdata_{'fx_' if is_fx else ''}{fmt}"
+        if fmt == "Standalone":
+            target = "plugdata_standalone"
+
+        cmake_build = [
+            "cmake",
+            "--build", str(build_dir),
+            "--target", target,
+            "--config Release"
+        ]
+        print(clr(f"Building target: {target}", 36))
+        result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
+        if result_build.returncode != 0:
+            print(clr(f"Failed to build target: {target}", 91))
+            build_results.append({"plugin": name, "target": target, "status": "FAILED"})
+        else:
+            print(clr(f"Successfully built: {target}", 92))
+            build_results.append({"plugin": name, "target": target, "status": "SUCCESS"})
+
+        format_path = os.path.join(plugins_dir, fmt)
+        target_dir = os.path.join(build_output_dir, fmt)
+
+        if fmt == "Standalone":
+            if os.path.isdir(format_path):
+                if os.path.exists(target_dir):
+                    shutil.rmtree(target_dir)
+                shutil.copytree(format_path, target_dir)
+        else:
+            extension = ""
+            if fmt == "VST3":
+                extension = ".vst3"
+            elif fmt == "AU":
+                extension = ".component"
+            elif fmt == "LV2":
+                extension = ".lv2"
+            elif fmt == "CLAP":
+                extension = ".clap"
+
+            plugin_filename = name + extension
+            os.makedirs(target_dir, exist_ok=True)
+            src = os.path.join(format_path, plugin_filename)
+            dst = os.path.join(target_dir, plugin_filename)
+            if os.path.isdir(src):
+                if os.path.exists(dst):
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
             else:
-                print(f"Successfully built: {target}")
-            format_path = os.path.join(plugins_dir, fmt)
-            target_dir = os.path.join(build_output_dir, fmt)
+                if os.path.exists(dst):
+                    os.remove(dst)
+                shutil.copy2(src, dst)
 
-            if fmt == "Standalone":
-                if os.path.isdir(format_path):
-                    if os.path.exists(target_dir):
-                        shutil.rmtree(target_dir)
-                    shutil.copytree(format_path, target_dir)
-            else:
-                extension = ""
-                if fmt == "VST3":
-                    extension = ".vst3"
-                elif fmt == "AU":
-                    extension = ".component"
-                elif fmt == "LV2":
-                    extension = ".lv2"
-                elif fmt == "CLAP":
-                    extension = ".clap"
+if build_results:
+    print("\n" + clr("=" * 40, 1, 34))
+    print(clr("           BUILD SUMMARY", 1, 34))
+    print(clr("=" * 40, 1, 34) + "\n")
 
-                plugin_filename = name + extension
-                os.makedirs(target_dir, exist_ok=True)
-                src = os.path.join(format_path, plugin_filename)
-                dst = os.path.join(target_dir, plugin_filename)
-                if os.path.isdir(src):
-                    if os.path.exists(dst):
-                        shutil.rmtree(dst)
-                    shutil.copytree(src, dst)
-                else:
-                    if os.path.exists(dst):
-                        os.remove(dst)
-                    shutil.copy2(src, dst)
+    p_width = max(len(r["plugin"]) for r in build_results)
+    p_width = max(p_width, 6)
+
+    t_width = max(len(r["target"]) for r in build_results)
+    t_width = max(t_width, 6)
+
+    border = "=" * (p_width + t_width + 20)
+    divider = "-" * (p_width + t_width + 20)
+
+    print(border)
+    print(f"| {clr('Plugin'.ljust(p_width), 1)} | {clr('Target'.ljust(t_width), 1)} | {clr('Status'.ljust(10), 1)} |")
+    print(divider)
+    for r in build_results:
+        st = r["status"]
+        if st == "SUCCESS":
+            colorized_st = clr("SUCCESS", 92)
+        else:
+            colorized_st = clr("FAILED", 91)
+        padding = " " * (10 - len(st))
+        print(f"| {r['plugin'].ljust(p_width)} | {r['target'].ljust(t_width)} | {colorized_st}{padding} |")
+    print(border)
