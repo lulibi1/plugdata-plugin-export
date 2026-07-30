@@ -28,6 +28,15 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+def clr(text: str, *codes) -> str:
+    """Returns ANSI colorized string based on TTY status, FORCE_COLOR and NO_COLOR."""
+    if "NO_COLOR" in os.environ:
+        return text
+    if "FORCE_COLOR" in os.environ or sys.stdout.isatty():
+        ansi_codes = ";".join(str(c) for c in codes)
+        return f"\033[{ansi_codes}m{text}\033[0m"
+    return text
+
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
@@ -81,8 +90,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not (resolved.is_file() or resolved.is_dir()):
+            error(f"{prefix} ({name!r}): plugin path exists but is neither a file nor a directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,15 +131,15 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", 1, 93))
     for w in warnings:
-        print(w)
+        print(clr(w, 93))
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", 1, 91))
     for e in errors:
-        print(e)
+        print(clr(e, 91))
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -162,6 +171,9 @@ if not plugdata_dir.is_dir():
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
+# List to track individual target build results
+build_results = []
+
 for plugin in plugins_config:
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
@@ -170,7 +182,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing:', 1, 36)} {name}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -200,10 +212,22 @@ for plugin in plugins_config:
         cmake_configure.append(f"-DCMAKE_C_COMPILER_LAUNCHER={args.compiler_launcher}")
         cmake_configure.append(f"-DCMAKE_CXX_COMPILER_LAUNCHER={args.compiler_launcher}")
 
+    # Track config success/failure per plugin
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", 91))
+        build_results.append({
+            "plugin": name,
+            "target": "CMake Config",
+            "status": "FAILED"
+        })
         continue
+
+    build_results.append({
+        "plugin": name,
+        "target": "CMake Config",
+        "status": "SUCCESS"
+    })
 
     if not args.configure_only:
         for fmt in formats:
@@ -219,12 +243,22 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"{clr('Building target:', 1, 36)} {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"Failed to build target: {target}", 91))
+                build_results.append({
+                    "plugin": name,
+                    "target": target,
+                    "status": "FAILED"
+                })
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", 92))
+                build_results.append({
+                    "plugin": name,
+                    "target": target,
+                    "status": "SUCCESS"
+                })
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +290,39 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+# ── Print build summary table ───────────────────────────────────────────────
+if build_results:
+    # Determine columns width based on results but ensure some sane minimums
+    p_width = max(max(len(r["plugin"]) for r in build_results), 10)
+    t_width = max(max(len(r["target"]) for r in build_results), 10)
+
+    # Header and footer borders
+    # Status is always 'SUCCESS' or 'FAILED'
+    border = f"+{'-' * (p_width + 2)}+{'-' * (t_width + 2)}+{'-' * 12}+"
+
+    print("\n" + clr("=" * (p_width + t_width + 20), 1, 34))
+    print(clr("  BUILD SUMMARY  ".center(p_width + t_width + 20, " "), 1, 34))
+    print(clr("=" * (p_width + t_width + 20), 1, 34))
+    print(border)
+    print(f"| {clr('Plugin'.ljust(p_width), 1)} | {clr('Target'.ljust(t_width), 1)} | {clr('Status'.ljust(10), 1)} |")
+    print(border)
+
+    for r in build_results:
+        plugin_col = r["plugin"].ljust(p_width)
+        target_col = r["target"].ljust(t_width)
+
+        status = r["status"]
+        if status == "SUCCESS":
+            color_status = clr("SUCCESS", 92)
+        else:
+            color_status = clr("FAILED", 91)
+
+        # Since clr returns ANSI escapes that make the string length longer in raw chars,
+        # we pad manually or use specific padding based on visual length of status.
+        status_padding = " " * (10 - len(status))
+        status_col = f"{color_status}{status_padding}"
+
+        print(f"| {plugin_col} | {target_col} | {status_col} |")
+
+    print(border + "\n")
