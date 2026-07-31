@@ -291,21 +291,23 @@ for plugin in plugins_config:
                     shutil.copy2(src, dst)
 
 if build_results:
-    print("\n" + clr("═══ BUILD SUMMARY ═══", 1, 34))
+    if system == "Windows":
+        summary_title = "=== BUILD SUMMARY ==="
+        border_char = "="
+        line_char = "-"
+        div_char = "|"
+    else:
+        summary_title = "═══ BUILD SUMMARY ═══"
+        border_char = "═"
+        line_char = "─"
+        div_char = "│"
+
+    print("\n" + clr(summary_title, 1, 34))
 
     p_width = max(len(r["plugin"]) for r in build_results)
     p_width = max(p_width, 15)
     t_width = max(len(r["target"]) for r in build_results)
     t_width = max(t_width, 25)
-
-    if system == "Windows":
-        border_char = "="
-        line_char = "-"
-        div_char = "|"
-    else:
-        border_char = "═"
-        line_char = "─"
-        div_char = "│"
 
     border_top = border_char * (p_width + t_width + 20)
     border_middle = line_char * (p_width + t_width + 20)
