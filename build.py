@@ -8,6 +8,19 @@ import argparse
 import re
 import sys
 
+def colors_enabled() -> bool:
+    if "NO_COLOR" in os.environ:
+        return False
+    if "FORCE_COLOR" in os.environ:
+        return True
+    return sys.stdout.isatty()
+
+def clr(text: str, *codes) -> str:
+    if colors_enabled():
+        ansi_codes = ";".join(str(c) for c in codes)
+        return f"\033[{ansi_codes}m{text}\033[0m"
+    return text
+
 parser = argparse.ArgumentParser(description="Build plugins with CMake")
 parser.add_argument(
     "--compiler-launcher",
@@ -37,26 +50,26 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR:', 91)} {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING:', 93)} {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(f"{clr('FATAL:', 91)} config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(f"{clr('FATAL:', 91)} config.json is not valid JSON – {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(f"{clr('FATAL:', 91)} config.json must contain a JSON array of plugin objects.")
         sys.exit(1)
 
     if len(data) == 0:
@@ -122,13 +135,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", 1, 93))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", 1, 91))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -136,6 +149,7 @@ if errors:
 # ── Continue with the rest of the build ─────────────────────────────────────
 
 system = platform.system()
+build_results = []
 if system == "Windows":
     cmake_compiler = ["-DCMAKE_C_COMPILER=cl", "-DCMAKE_CXX_COMPILER=cl"]
 else:
@@ -157,7 +171,7 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+    print(f"{clr('FATAL:', 91)} plugdata directory not found at '{plugdata_dir}'. "
           f"Make sure you're running this script from the repo root and that "
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
@@ -170,7 +184,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing:', 36)} {clr(name, 1)}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,8 +216,19 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{clr('Failed cmake configure for', 91)} {name}")
+        build_results.append({
+            "plugin": name,
+            "target": "CMake Configure",
+            "status": "FAILED"
+        })
         continue
+    else:
+        build_results.append({
+            "plugin": name,
+            "target": "CMake Configure",
+            "status": "SUCCESS"
+        })
 
     if not args.configure_only:
         for fmt in formats:
@@ -219,12 +244,22 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"{clr('Building target:', 36)} {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(f"{clr('Failed to build target:', 91)} {target}")
+                build_results.append({
+                    "plugin": name,
+                    "target": target,
+                    "status": "FAILED"
+                })
             else:
-                print(f"Successfully built: {target}")
+                print(f"{clr('Successfully built:', 92)} {target}")
+                build_results.append({
+                    "plugin": name,
+                    "target": target,
+                    "status": "SUCCESS"
+                })
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +291,40 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+if build_results:
+    print("\n" + clr("═══ BUILD SUMMARY ═══", 1, 34))
+
+    p_width = max(len(r["plugin"]) for r in build_results)
+    p_width = max(p_width, 15)
+    t_width = max(len(r["target"]) for r in build_results)
+    t_width = max(t_width, 25)
+
+    if system == "Windows":
+        border_char = "="
+        line_char = "-"
+        div_char = "|"
+    else:
+        border_char = "═"
+        line_char = "─"
+        div_char = "│"
+
+    border_top = border_char * (p_width + t_width + 20)
+    border_middle = line_char * (p_width + t_width + 20)
+    border_bottom = border_char * (p_width + t_width + 20)
+
+    print(border_top)
+    print(f"{div_char} {'Plugin':<{p_width}} {div_char} {'Target':<{t_width}} {div_char} {'Status':<10} {div_char}")
+    print(border_middle)
+    for r in build_results:
+        plugin = r["plugin"]
+        target = r["target"]
+        status = r["status"]
+        if status == "SUCCESS":
+            colored_status = clr(status, 92)
+        else:
+            colored_status = clr(status, 91)
+        pad_len = 10 - len(status)
+        status_padded = f"{colored_status}{' ' * pad_len}"
+        print(f"{div_char} {plugin:<{p_width}} {div_char} {target:<{t_width}} {div_char} {status_padded} {div_char}")
+    print(border_bottom)
