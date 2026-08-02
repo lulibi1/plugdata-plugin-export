@@ -303,6 +303,6 @@ if build_results:
     success_count = sum(1 for _, _, status in build_results if status == "SUCCESS")
     failed_count = sum(1 for _, _, status in build_results if status == "FAILED")
     if failed_count == 0:
-        print("\n" + clr(f"✨ Success: All {success_count} tasks completed successfully! Output directory: {build_output_dir}", 1, 92))
+        print("\n" + clr(f"Success: All {success_count} tasks completed successfully! Output directory: {build_output_dir}", 1, 92))
     else:
-        print("\n" + clr(f"❌ Completed with errors: {success_count} succeeded, {failed_count} failed.", 1, 91))
+        print("\n" + clr(f"Completed with errors: {success_count} succeeded, {failed_count} failed.", 1, 91))
