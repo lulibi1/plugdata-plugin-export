@@ -1,0 +1,3 @@
+## 2026-04-11 - Handling ANSI Colors in CLI Summary Table Alignment
+**Learning:** When printing a summary table in CLI tools, using ANSI escape codes for coloring statuses (e.g. green 'SUCCESS' or red 'FAILED') dynamically changes the string length but not its visual width. Simple string padding (like `f"{status:<10}"`) fails because python counts the invisible escape characters, throwing the alignment off.
+**Action:** Always compute padding length explicitly using the raw visual text length (e.g., `10 - len(raw_status)`) rather than the colored string length, ensuring precise and visually satisfying column alignment.
