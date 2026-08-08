@@ -1,0 +1,3 @@
+## 2026-04-12 - Aligned ANSI Summary Table and Progress Indicator CLI UX
+**Learning:** For terminal-only automated builds, long scrolled text logs cause high cognitive load. Implementing a real-time progress indicator, colorized output with proper environment safety checks (e.g., `NO_COLOR`, `FORCE_COLOR`), and a custom-padded summary table using standard ASCII characters prevents formatting issues on Windows consoles while maximizing readability.
+**Action:** When designing CLI tools, calculate exact dynamic column widths while offsetting non-printable ANSI escape sequences to keep tables perfectly aligned across OS platforms.
