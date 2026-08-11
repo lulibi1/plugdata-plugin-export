@@ -81,8 +81,37 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not (resolved.is_file() or resolved.is_dir()):
+            error(f"{prefix} ({name!r}): plugin path exists but is neither a file nor a directory: '{resolved}'")
+
+    patch = plugin.get("patch")
+    if path:
+        resolved_path = Path(path).resolve()
+        if resolved_path.is_dir():
+            if not patch:
+                error(f"{prefix} ({name!r}): missing required field 'patch' because 'path' is a directory.")
+            elif not isinstance(patch, str) or not patch.strip():
+                error(f"{prefix} ({name!r}): 'patch' must be a non-empty string (got {patch!r}).")
+            elif not patch.lower().endswith(".pd"):
+                error(f"{prefix} ({name!r}): 'patch' file '{patch}' must have a '.pd' extension.")
+            else:
+                resolved_patch = (resolved_path / patch).resolve()
+                if not resolved_patch.exists():
+                    error(f"{prefix} ({name!r}): patch file '{patch}' not found inside directory '{resolved_path}'.")
+        elif resolved_path.is_file():
+            if resolved_path.suffix.lower() == ".zip":
+                if not patch:
+                    error(f"{prefix} ({name!r}): missing required field 'patch' because 'path' is a zip file.")
+                elif not isinstance(patch, str) or not patch.strip():
+                    error(f"{prefix} ({name!r}): 'patch' must be a non-empty string (got {patch!r}).")
+                elif not patch.lower().endswith(".pd"):
+                    error(f"{prefix} ({name!r}): 'patch' file '{patch}' must have a '.pd' extension.")
+            else:
+                if patch is not None:
+                    if not isinstance(patch, str) or not patch.strip():
+                        error(f"{prefix} ({name!r}): 'patch' must be a non-empty string (got {patch!r}).")
+                    elif not patch.lower().endswith(".pd"):
+                        error(f"{prefix} ({name!r}): 'patch' file '{patch}' must have a '.pd' extension.")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -165,7 +194,7 @@ if not plugdata_dir.is_dir():
 for plugin in plugins_config:
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
-    patch = plugin["patch"]
+    patch = plugin.get("patch", "")
     formats = plugin.get("formats", [])
     is_fx = plugin.get("type", "").lower() == "fx"
 
