@@ -36,27 +36,34 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
+def clr(text: str, code: str) -> str:
+    if os.environ.get("NO_COLOR"):
+        return text
+    if os.environ.get("FORCE_COLOR") or sys.stdout.isatty():
+        return f"\033[{code}m{text}\033[0m"
+    return text
+
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(clr(f"  ERROR: {msg}", "91"))
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(clr(f"  WARNING: {msg}", "93"))
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(clr(f"FATAL: config.json not found at '{os.path.abspath(path)}'", "91"))
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(clr(f"FATAL: config.json is not valid JSON – {e}", "91"))
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(clr("FATAL: config.json must contain a JSON array of plugin objects.", "91"))
         sys.exit(1)
 
     if len(data) == 0:
@@ -75,14 +82,19 @@ def validate_plugin(plugin: dict, index: int):
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
 
     path = plugin.get("path")
+    patch = plugin.get("patch", "")
     if not path:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
     else:
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not (resolved.is_file() or resolved.is_dir()):
+            error(f"{prefix} ({name!r}): plugin path exists but is neither a file nor a directory: '{resolved}'")
+        elif resolved.is_dir() and patch:
+            patch_path = resolved / patch
+            if not patch_path.exists():
+                error(f"{prefix} ({name!r}): patch file '{patch}' not found in directory '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,13 +134,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", "93;1"))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", "91;1"))
     for e in errors:
         print(e)
     sys.exit(1)
