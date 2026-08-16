@@ -7,6 +7,7 @@ import shutil
 import argparse
 import re
 import sys
+import time
 
 parser = argparse.ArgumentParser(description="Build plugins with CMake")
 parser.add_argument(
@@ -162,6 +163,13 @@ if not plugdata_dir.is_dir():
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
+total_targets = sum(
+    1 for p in plugins_config
+    for fmt in p.get("formats", [])
+    if not (system != "Darwin" and fmt == "AU")
+) if not args.configure_only else 0
+current_target_idx = 0
+
 for plugin in plugins_config:
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
@@ -213,18 +221,21 @@ for plugin in plugins_config:
             if fmt == "Standalone":
                 target = "plugdata_standalone"
 
+            current_target_idx += 1
             cmake_build = [
                 "cmake",
                 "--build", str(build_dir),
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"[{current_target_idx}/{total_targets}] Building target: {target}")
+            target_start = time.time()
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
+            elapsed = time.time() - target_start
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(f"Failed to build target: {target} ({elapsed:.1f}s)")
             else:
-                print(f"Successfully built: {target}")
+                print(f"Successfully built: {target} ({elapsed:.1f}s)")
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
