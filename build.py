@@ -8,22 +8,33 @@ import argparse
 import re
 import sys
 
-parser = argparse.ArgumentParser(description="Build plugins with CMake")
+parser = argparse.ArgumentParser(
+    description="Build plugdata audio plugins (VST3, AU, LV2, CLAP, Standalone) with CMake.",
+    epilog="""Examples:
+  python3 build.py                           Build all plugins configured in config.json
+  python3 build.py --configure-only          Run CMake configuration stage without compiling
+  python3 build.py --generator ninja         Use Ninja generator for speed
+  python3 build.py --compiler-launcher ccache Use ccache for faster incremental rebuilds
+""",
+    formatter_class=argparse.RawDescriptionHelpFormatter
+)
 parser.add_argument(
     "--compiler-launcher",
     type=str,
-    help="Optional compiler launcher (e.g., ccache, sccache)"
+    metavar="LAUNCHER",
+    help="Optional compiler launcher executable (e.g., ccache, sccache)"
 )
 parser.add_argument(
     "--generator",
     choices=["ninja", "xcode", "visualstudio"],
     default="ninja",
+    metavar="TYPE",
     help="CMake generator to use: ninja (default), xcode, or visualstudio"
 )
 parser.add_argument(
     "--configure-only",
     action="store_true",
-    help="Only run CMake configuration, skip the build step"
+    help="Only run CMake configuration stage; skip target compilation"
 )
 
 args = parser.parse_args()
