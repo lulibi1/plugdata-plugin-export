@@ -36,6 +36,13 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
+def clr(text: str, code: str) -> str:
+    if "NO_COLOR" in os.environ:
+        return text
+    if os.environ.get("FORCE_COLOR") or (hasattr(sys.stdout, "isatty") and sys.stdout.isatty()):
+        return f"\033[{code}m{text}\033[0m"
+    return text
+
 def error(msg: str):
     errors.append(f"  ERROR: {msg}")
 
@@ -122,13 +129,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", "93;1"))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", "91;1"))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -157,10 +164,12 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
-          f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+    print(clr(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+              f"Make sure you're running this script from the repo root and that "
+              f"the plugdata submodule has been initialised (git submodule update --init).", "91;1"))
     sys.exit(1)
+
+build_results = []
 
 for plugin in plugins_config:
     name = plugin["name"]
@@ -170,7 +179,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(clr(f"\nProcessing: {name}", "36;1"))
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +211,8 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", "91"))
+        build_results.append((name, "CMake Configure", "FAILED"))
         continue
 
     if not args.configure_only:
@@ -222,9 +232,11 @@ for plugin in plugins_config:
             print(f"Building target: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"Failed to build target: {target}", "91"))
+                build_results.append((name, target, "FAILED"))
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", "92"))
+                build_results.append((name, target, "SUCCESS"))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +268,21 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+if build_results:
+    print("\n" + clr("=== BUILD SUMMARY ===", "1"))
+    succeeded = sum(1 for _, _, status in build_results if status == "SUCCESS")
+    failed = sum(1 for _, _, status in build_results if status == "FAILED")
+    p_w = max(len("Plugin"), max(len(r[0]) for r in build_results))
+    t_w = max(len("Target"), max(len(r[1]) for r in build_results))
+    print(f"{'Plugin':<{p_w}}  {'Target':<{t_w}}  Status")
+    print("-" * (p_w + t_w + 12))
+    for p_name, t_name, status in build_results:
+        st_color = "92" if status == "SUCCESS" else "91"
+        print(f"{p_name:<{p_w}}  {t_name:<{t_w}}  {clr(status, st_color)}")
+    print("-" * (p_w + t_w + 12))
+    summary_msg = f"Build finished: {succeeded} succeeded, {failed} failed."
+    if failed == 0:
+        print(clr(f"{summary_msg} Artifacts saved to '{build_output_dir}'.", "92;1"))
+    else:
+        print(clr(f"{summary_msg} Check logs above for details.", "91;1"))
