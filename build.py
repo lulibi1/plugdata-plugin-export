@@ -8,7 +8,18 @@ import argparse
 import re
 import sys
 
-parser = argparse.ArgumentParser(description="Build plugins with CMake")
+epilog_text = """examples:
+  python3 build.py                        Build plugins defined in config.json
+  python3 build.py --generator xcode       Use Xcode generator
+  python3 build.py --configure-only       Run CMake configuration step only
+  python3 build.py --compiler-launcher ccache  Use ccache for faster compilation
+"""
+
+parser = argparse.ArgumentParser(
+    description="Build plugdata-powered plugins using CMake and config.json settings.",
+    epilog=epilog_text,
+    formatter_class=argparse.RawDescriptionHelpFormatter
+)
 parser.add_argument(
     "--compiler-launcher",
     type=str,
