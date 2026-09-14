@@ -28,6 +28,28 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# ── Color & UI Helpers ──────────────────────────────────────────────────────
+
+def use_color() -> bool:
+    if "NO_COLOR" in os.environ:
+        return False
+    if "FORCE_COLOR" in os.environ:
+        return True
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+
+def clr(text: str, *codes: str) -> str:
+    if not use_color() or not codes:
+        return text
+    seq = ";".join(codes)
+    return f"\033[{seq}m{text}\033[0m"
+
+# ANSI color code shorthands
+RED = "91"
+GREEN = "92"
+YELLOW = "93"
+CYAN = "36"
+BOLD = "1"
+
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
@@ -37,26 +59,26 @@ errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
 def error(msg: str):
-    errors.append(f"  ERROR: {msg}")
+    errors.append(f"  {clr('ERROR:', RED, BOLD)} {msg}")
 
 def warn(msg: str):
-    warnings.append(f"  WARNING: {msg}")
+    warnings.append(f"  {clr('WARNING:', YELLOW, BOLD)} {msg}")
 
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(f"{clr('FATAL:', RED, BOLD)} config.json not found at '{os.path.abspath(path)}'")
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(f"{clr('FATAL:', RED, BOLD)} config.json is not valid JSON – {e}")
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(f"{clr('FATAL:', RED, BOLD)} config.json must contain a JSON array of plugin objects.")
         sys.exit(1)
 
     if len(data) == 0:
@@ -122,13 +144,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", YELLOW, BOLD))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", RED, BOLD))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -157,7 +179,7 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+    print(f"{clr('FATAL:', RED, BOLD)} plugdata directory not found at '{plugdata_dir}'. "
           f"Make sure you're running this script from the repo root and that "
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
@@ -170,7 +192,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr('Processing:', CYAN, BOLD)} {clr(name, BOLD)}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +224,7 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(f"{clr('Failed cmake configure for', RED, BOLD)} {name}")
         continue
 
     if not args.configure_only:
@@ -219,12 +241,12 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"{clr('Building target:', CYAN)} {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(f"{clr('Failed to build target:', RED, BOLD)} {target}")
             else:
-                print(f"Successfully built: {target}")
+                print(f"{clr('Successfully built:', GREEN, BOLD)} {target}")
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
