@@ -2,8 +2,8 @@
   {
     "name": "MoogSynth",
     "author": "DeinName",
-    "path": "Plugins",
-    "patch": "_main.pd",
+    "path": "Plugins/N-TILT.zip",
+    "patch": "N-TILT.pd",
     "formats": ["VST3", "AU", "CLAP"],
     "type": "instrument",
     "version": "1.0.0",
