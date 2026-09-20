@@ -28,7 +28,20 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-# ── Sanity-check helpers ────────────────────────────────────────────────────
+# ── Sanity-check & styling helpers ──────────────────────────────────────────
+
+def supports_color() -> bool:
+    if "NO_COLOR" in os.environ:
+        return False
+    if "FORCE_COLOR" in os.environ:
+        return True
+    return getattr(sys.stdout, "isatty", lambda: False)()
+
+def clr(text: str, *codes: str) -> str:
+    if not supports_color():
+        return text
+    code_str = ";".join(codes)
+    return f"\033[{code_str}m{text}\033[0m"
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -122,13 +135,13 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", "1", "93"))
     for w in warnings:
         print(w)
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", "1", "91"))
     for e in errors:
         print(e)
     sys.exit(1)
@@ -157,10 +170,12 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
-          f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+    print(clr(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+              f"Make sure you're running this script from the repo root and that "
+              f"the plugdata submodule has been initialised (git submodule update --init).", "1", "91"))
     sys.exit(1)
+
+build_results = []
 
 for plugin in plugins_config:
     name = plugin["name"]
@@ -170,7 +185,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr(f'Processing: {name}', '1', '36')}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,10 +217,13 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", "91"))
+        build_results.append((name, "Configure", "FAILED"))
         continue
 
-    if not args.configure_only:
+    if args.configure_only:
+        build_results.append((name, "Configure", "SUCCESS"))
+    else:
         for fmt in formats:
             if system != "Darwin" and fmt == "AU":
                 continue
@@ -219,12 +237,14 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(f"Building target: {clr(target, '36')}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"Failed to build target: {target}", "91"))
+                build_results.append((name, target, "FAILED"))
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", "92"))
+                build_results.append((name, target, "SUCCESS"))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +276,31 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+if build_results:
+    p_width = max(len("Plugin"), max(len(r[0]) for r in build_results))
+    t_width = max(len("Target"), max(len(r[1]) for r in build_results))
+    separator = f"+-{'-' * p_width}-+-{'-' * t_width}-+-{'-' * 10}-+"
+
+    print(f"\n{clr('=== BUILD SUMMARY ===', '1', '34')}")
+    print(separator)
+    print(f"| {'Plugin':<{p_width}} | {'Target':<{t_width}} | {'Status':<10} |")
+    print(separator)
+
+    succeeded = 0
+    failed = 0
+    for plugin_name, target_name, status in build_results:
+        if status == "SUCCESS":
+            succeeded += 1
+            status_str = clr("SUCCESS", "92")
+        else:
+            failed += 1
+            status_str = clr("FAILED", "91")
+        padding = 10 - len(status)
+        print(f"| {plugin_name:<{p_width}} | {target_name:<{t_width}} | {status_str}{' ' * padding} |")
+
+    print(separator)
+    if failed == 0:
+        print(clr(f"✓ All {succeeded} target(s) completed successfully! Output in Build/", "1", "92"))
+    else:
+        print(clr(f"✗ Finished with {succeeded} succeeded, {failed} failed target(s).", "1", "91"))
