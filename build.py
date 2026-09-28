@@ -36,6 +36,19 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
+def USE_COLOR() -> bool:
+    if "NO_COLOR" in os.environ:
+        return False
+    if os.environ.get("FORCE_COLOR"):
+        return True
+    return sys.stdout.isatty()
+
+def clr(text: str, *codes: str) -> str:
+    if not USE_COLOR():
+        return text
+    seq = ";".join(codes)
+    return f"\033[{seq}m{text}\033[0m"
+
 def error(msg: str):
     errors.append(f"  ERROR: {msg}")
 
@@ -45,18 +58,18 @@ def warn(msg: str):
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(clr(f"FATAL: config.json not found at '{os.path.abspath(path)}'", "1", "91"))
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(clr(f"FATAL: config.json is not valid JSON – {e}", "1", "91"))
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(clr("FATAL: config.json must contain a JSON array of plugin objects.", "1", "91"))
         sys.exit(1)
 
     if len(data) == 0:
@@ -81,8 +94,8 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif not (resolved.is_file() or resolved.is_dir()):
+            error(f"{prefix} ({name!r}): plugin path exists but is not a file or directory: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,15 +135,15 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", "1", "93"))
     for w in warnings:
-        print(w)
+        print(clr(w, "93"))
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", "1", "91"))
     for e in errors:
-        print(e)
+        print(clr(e, "91"))
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -162,6 +175,8 @@ if not plugdata_dir.is_dir():
           f"the plugdata submodule has been initialised (git submodule update --init).")
     sys.exit(1)
 
+build_results = []
+
 for plugin in plugins_config:
     name = plugin["name"]
     zip_path = Path(plugin["path"]).resolve()
@@ -170,7 +185,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(clr(f"\nProcessing: {name}", "1", "36"))
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,10 +217,13 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", "91"))
+        build_results.append({"plugin": name, "target": "CMake Configure", "status": "FAILED"})
         continue
 
-    if not args.configure_only:
+    if args.configure_only:
+        build_results.append({"plugin": name, "target": "CMake Configure", "status": "SUCCESS"})
+    else:
         for fmt in formats:
             if system != "Darwin" and fmt == "AU":
                 continue
@@ -219,12 +237,15 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(clr(f"  Building target: {target}", "36"))
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"  Failed to build target: {target}", "91"))
+                build_results.append({"plugin": name, "target": target, "status": "FAILED"})
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"  Successfully built: {target}", "92"))
+                build_results.append({"plugin": name, "target": target, "status": "SUCCESS"})
+
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +277,47 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+# ── Summary Display ─────────────────────────────────────────────────────────
+
+if build_results:
+    p_width = max(6, max(len(r["plugin"]) for r in build_results))
+    t_width = max(6, max(len(r["target"]) for r in build_results))
+    s_width = 10
+
+    border = "+" + "-" * (p_width + 2) + "+" + "-" * (t_width + 2) + "+" + "-" * (s_width + 2) + "+"
+
+    print("\n" + clr("=== BUILD SUMMARY ===", "1", "34"))
+    print(border)
+    plugin_hdr = clr("Plugin", "1") + " " * (p_width - 6)
+    target_hdr = clr("Target", "1") + " " * (t_width - 6)
+    status_hdr = clr("Status", "1") + " " * (s_width - 6)
+    print(f"| {plugin_hdr} | {target_hdr} | {status_hdr} |")
+    print(border)
+
+    succeeded_count = 0
+    failed_count = 0
+
+    for r in build_results:
+        plugin_cell = f"{r['plugin']:<{p_width}}"
+        target_cell = f"{r['target']:<{t_width}}"
+        if r["status"] == "SUCCESS":
+            succeeded_count += 1
+            status_cell = clr("SUCCESS", "92") + " " * (s_width - 7)
+        else:
+            failed_count += 1
+            status_cell = clr("FAILED", "91") + " " * (s_width - 6)
+
+        print(f"| {plugin_cell} | {target_cell} | {status_cell} |")
+
+    print(border)
+
+    total = len(build_results)
+    if failed_count == 0 and total > 0:
+        summary_msg = clr(f"Build Completed Successfully: All {total} task(s) succeeded. Output directory: '{build_output_dir}'", "1", "92")
+    elif failed_count > 0:
+        summary_msg = clr(f"Build Completed with Errors: {succeeded_count} succeeded, {failed_count} failed out of {total} task(s).", "1", "91")
+    else:
+        summary_msg = clr("No build tasks were executed.", "1", "93")
+
+    print("\n" + summary_msg + "\n")
