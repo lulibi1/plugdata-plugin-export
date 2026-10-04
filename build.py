@@ -8,7 +8,19 @@ import argparse
 import re
 import sys
 
-parser = argparse.ArgumentParser(description="Build plugins with CMake")
+epilog_text = """Examples:
+  python build.py                             # Build plugins using default Ninja generator
+  python build.py --configure-only            # Run CMake configuration step only
+  python build.py --generator xcode           # Generate Xcode project (macOS)
+  python build.py --generator visualstudio    # Generate Visual Studio 2022 project (Windows)
+  python build.py --compiler-launcher ccache  # Build using ccache to speed up compilation
+"""
+
+parser = argparse.ArgumentParser(
+    description="Build plugins with CMake",
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    epilog=epilog_text
+)
 parser.add_argument(
     "--compiler-launcher",
     type=str,
@@ -81,8 +93,6 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
