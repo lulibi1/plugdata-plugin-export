@@ -28,6 +28,32 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# ── ANSI Color Support ──────────────────────────────────────────────────────
+
+def is_color_enabled() -> bool:
+    if "NO_COLOR" in os.environ:
+        return False
+    if "FORCE_COLOR" in os.environ:
+        return True
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+
+COLOR_ENABLED = is_color_enabled()
+
+# ANSI codes
+BOLD = "1"
+RED = "91"
+GREEN = "92"
+YELLOW = "93"
+BLUE = "34"
+CYAN = "36"
+
+def clr(text: str, *codes: str) -> str:
+    """Wrap text in ANSI escape codes if color output is enabled."""
+    if not COLOR_ENABLED or not codes:
+        return text
+    code_str = ";".join(codes)
+    return f"\033[{code_str}m{text}\033[0m"
+
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
@@ -45,18 +71,18 @@ def warn(msg: str):
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(clr(f"FATAL: config.json not found at '{os.path.abspath(path)}'", RED, BOLD))
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(clr(f"FATAL: config.json is not valid JSON – {e}", RED, BOLD))
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(clr("FATAL: config.json must contain a JSON array of plugin objects.", RED, BOLD))
         sys.exit(1)
 
     if len(data) == 0:
@@ -122,15 +148,15 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", YELLOW, BOLD))
     for w in warnings:
-        print(w)
+        print(clr(w, YELLOW))
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", RED, BOLD))
     for e in errors:
-        print(e)
+        print(clr(e, RED))
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -157,10 +183,12 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
-          f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+    print(clr(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+              f"Make sure you're running this script from the repo root and that "
+              f"the plugdata submodule has been initialised (git submodule update --init).", RED, BOLD))
     sys.exit(1)
+
+build_results = []
 
 for plugin in plugins_config:
     name = plugin["name"]
@@ -170,7 +198,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(f"\n{clr(f'Processing: {name}', CYAN, BOLD)}")
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,8 +230,11 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", RED, BOLD))
+        build_results.append((name, "Configure", False))
         continue
+    else:
+        build_results.append((name, "Configure", True))
 
     if not args.configure_only:
         for fmt in formats:
@@ -222,9 +253,12 @@ for plugin in plugins_config:
             print(f"Building target: {target}")
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"Failed to build target: {target}", RED))
+                build_results.append((name, target, False))
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", GREEN))
+                build_results.append((name, target, True))
+
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
@@ -256,3 +290,39 @@ for plugin in plugins_config:
                     if os.path.exists(dst):
                         os.remove(dst)
                     shutil.copy2(src, dst)
+
+# ── Build Summary Output ───────────────────────────────────────────────────
+
+if build_results:
+    p_width = max(len("Plugin"), max(len(p) for p, _, _ in build_results))
+    t_width = max(len("Target"), max(len(t) for _, t, _ in build_results))
+
+    summary_header = f"\n=== BUILD SUMMARY ==="
+    print(clr(summary_header, BOLD, BLUE))
+    header_str = f"| {'Plugin':<{p_width}} | {'Target':<{t_width}} | Status     |"
+    print(header_str)
+    print("-" * (p_width + t_width + 20))
+
+    succeeded = 0
+    failed = 0
+
+    for plugin_name, target_name, success in build_results:
+        if success:
+            succeeded += 1
+            status_str = clr("SUCCESS", GREEN)
+            padding = " " * (10 - len("SUCCESS"))
+        else:
+            failed += 1
+            status_str = clr("FAILED", RED)
+            padding = " " * (10 - len("FAILED"))
+
+        print(f"| {plugin_name:<{p_width}} | {target_name:<{t_width}} | {status_str}{padding} |")
+
+    print("-" * (p_width + t_width + 20))
+
+    if failed == 0:
+        summary_msg = f"Build completed successfully: {succeeded} target(s) succeeded! Artifacts copied to 'Build/'."
+        print(clr(summary_msg, GREEN, BOLD))
+    else:
+        summary_msg = f"Build finished with errors: {succeeded} target(s) succeeded, {failed} target(s) failed."
+        print(clr(summary_msg, RED, BOLD))
