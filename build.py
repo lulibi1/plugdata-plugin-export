@@ -8,7 +8,16 @@ import argparse
 import re
 import sys
 
-parser = argparse.ArgumentParser(description="Build plugins with CMake")
+parser = argparse.ArgumentParser(
+    description="Build plugins configured in config.json with CMake.",
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    epilog="""Examples:
+  python3 build.py
+  python3 build.py --configure-only
+  python3 build.py --generator xcode
+  python3 build.py --compiler-launcher ccache
+"""
+)
 parser.add_argument(
     "--compiler-launcher",
     type=str,
@@ -81,8 +90,6 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
