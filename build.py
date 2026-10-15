@@ -33,6 +33,12 @@ args = parser.parse_args()
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
+USE_COLOR = "NO_COLOR" not in os.environ and (sys.stdout.isatty() or "FORCE_COLOR" in os.environ)
+
+def clr(text: str, code: str) -> str:
+    """Format text with ANSI escape sequence if color output is enabled."""
+    return f"\033[{code}m{text}\033[0m" if USE_COLOR else text
+
 errors = []   # fatal problems  – abort after collecting all of them
 warnings = [] # non-fatal oddities
 
@@ -45,18 +51,18 @@ def warn(msg: str):
 def validate_config(path: str) -> list:
     """Load and validate config.json. Returns the parsed list or exits."""
     if not os.path.isfile(path):
-        print(f"FATAL: config.json not found at '{os.path.abspath(path)}'")
+        print(clr(f"FATAL: config.json not found at '{os.path.abspath(path)}'", "91;1"))
         sys.exit(1)
 
     try:
         with open(path) as f:
             data = json.load(f)
     except json.JSONDecodeError as e:
-        print(f"FATAL: config.json is not valid JSON – {e}")
+        print(clr(f"FATAL: config.json is not valid JSON – {e}", "91;1"))
         sys.exit(1)
 
     if not isinstance(data, list):
-        print("FATAL: config.json must contain a JSON array of plugin objects.")
+        print(clr("FATAL: config.json must contain a JSON array of plugin objects.", "91;1"))
         sys.exit(1)
 
     if len(data) == 0:
@@ -122,15 +128,15 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", "93;1"))
     for w in warnings:
-        print(w)
+        print(clr(w, "93"))
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", "91;1"))
     for e in errors:
-        print(e)
+        print(clr(e, "91"))
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -157,9 +163,9 @@ build_output_dir = os.path.join("Build")
 os.makedirs(build_output_dir, exist_ok=True)
 
 if not plugdata_dir.is_dir():
-    print(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
-          f"Make sure you're running this script from the repo root and that "
-          f"the plugdata submodule has been initialised (git submodule update --init).")
+    print(clr(f"FATAL: plugdata directory not found at '{plugdata_dir}'. "
+              f"Make sure you're running this script from the repo root and that "
+              f"the plugdata submodule has been initialised (git submodule update --init).", "91;1"))
     sys.exit(1)
 
 for plugin in plugins_config:
@@ -170,7 +176,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(clr(f"\nProcessing: {name}", "36;1"))
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +208,7 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", "91"))
         continue
 
     if not args.configure_only:
@@ -219,12 +225,12 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(clr(f"Building target: {target}", "36"))
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"Failed to build target: {target}", "91"))
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", "92"))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
