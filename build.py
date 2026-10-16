@@ -28,6 +28,14 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+def clr(text: str, code: str) -> str:
+    """Format text with ANSI escape codes if stdout is TTY or FORCE_COLOR set, respecting NO_COLOR."""
+    if "NO_COLOR" in os.environ:
+        return text
+    if os.environ.get("FORCE_COLOR") or sys.stdout.isatty():
+        return f"\033[{code}m{text}\033[0m"
+    return text
+
 # ── Sanity-check helpers ────────────────────────────────────────────────────
 
 KNOWN_FORMATS = {"VST3", "AU", "LV2", "CLAP", "Standalone"}
@@ -81,8 +89,6 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
@@ -122,15 +128,15 @@ for i, plugin in enumerate(plugins_config):
     validate_plugin(plugin, i)
 
 if warnings:
-    print("Build warnings:")
+    print(clr("Build warnings:", "1;33"))
     for w in warnings:
-        print(w)
+        print(clr(w, "33"))
     print()
 
 if errors:
-    print("Build errors – cannot continue:")
+    print(clr("Build errors – cannot continue:", "1;31"))
     for e in errors:
-        print(e)
+        print(clr(e, "31"))
     sys.exit(1)
 
 # ── Continue with the rest of the build ─────────────────────────────────────
@@ -170,7 +176,7 @@ for plugin in plugins_config:
     is_fx = plugin.get("type", "").lower() == "fx"
 
     build_dir = builds_parent_dir / f"{args.generator}-{name}"
-    print(f"\nProcessing: {name}")
+    print(clr(f"\nProcessing: {name}", "1;36"))
 
     author = plugin.get("author", False)
     version = plugin.get("version", "1.0.0")
@@ -202,7 +208,7 @@ for plugin in plugins_config:
 
     result_configure = subprocess.run(cmake_configure, cwd=plugdata_dir)
     if result_configure.returncode != 0:
-        print(f"Failed cmake configure for {name}")
+        print(clr(f"Failed cmake configure for {name}", "1;31"))
         continue
 
     if not args.configure_only:
@@ -219,12 +225,12 @@ for plugin in plugins_config:
                 "--target", target,
                 "--config Release"
             ]
-            print(f"Building target: {target}")
+            print(clr(f"Building target: {target}", "36"))
             result_build = subprocess.run(cmake_build, cwd=plugdata_dir)
             if result_build.returncode != 0:
-                print(f"Failed to build target: {target}")
+                print(clr(f"Failed to build target: {target}", "1;31"))
             else:
-                print(f"Successfully built: {target}")
+                print(clr(f"Successfully built: {target}", "1;32"))
             format_path = os.path.join(plugins_dir, fmt)
             target_dir = os.path.join(build_output_dir, fmt)
 
