@@ -90,14 +90,25 @@ def validate_plugin(plugin: dict, index: int):
         error(f"{prefix}: 'name' must be a non-empty string (got {name!r}).")
 
     path = plugin.get("path")
+    resolved = None
     if not path:
         error(f"{prefix} ({name!r}): missing required field 'path'.")
     else:
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+
+    patch = plugin.get("patch")
+    if not patch:
+        error(f"{prefix} ({name!r}): missing required field 'patch'.")
+    elif not isinstance(patch, str) or not patch.strip():
+        error(f"{prefix} ({name!r}): 'patch' must be a non-empty string.")
+    elif not patch.endswith(".pd"):
+        warn(f"{prefix} ({name!r}): 'patch' file should end with '.pd' (got {patch!r}).")
+    elif resolved and resolved.is_dir():
+        patch_file = resolved / patch
+        if not patch_file.exists():
+            error(f"{prefix} ({name!r}): patch file {patch!r} not found in directory '{resolved}'.")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
