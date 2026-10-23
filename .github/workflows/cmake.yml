@@ -150,7 +150,7 @@ jobs:
 
       - name: Install Dependencies (pacman)
         if: ${{ matrix.pacman == 'pacman' }}
-        run: pacman -Sy && pacman -S --noconfirm cmake wget bzip2 git alsa-lib freetype2 libx11 libxcursor libxi libxext libxinerama libxrandr libxrender webkit2gtk cmake make gcc pkgconf python python-pip curl ccache freeglut mesa glfw-x11 glew jack2 openssl unzip ninja && pacman --noconfirm -Syu
+        run: pacman -Sy && pacman -S --noconfirm cmake wget bzip2 git alsa-lib freetype2 libx11 libxcursor libxi libxext libxinerama libxrandr libxrender webkit2gtk-4.1 cmake make gcc pkgconf python python-pip curl ccache freeglut mesa glfw-x11 glew jack2 openssl unzip ninja && pacman --noconfirm -Syu
 
       - uses: actions/checkout@v4
         with:
