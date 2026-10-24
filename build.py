@@ -91,8 +91,10 @@ def validate_plugin(plugin: dict, index: int):
         resolved = Path(path).resolve()
         if not resolved.exists():
             error(f"{prefix} ({name!r}): plugin path does not exist: '{resolved}'")
-        elif not resolved.is_file():
-            error(f"{prefix} ({name!r}): plugin path exists but is not a file: '{resolved}'")
+        elif resolved.is_dir():
+            patch = plugin.get("patch", "")
+            if patch and not (resolved / patch).exists():
+                error(f"{prefix} ({name!r}): patch file '{patch}' not found in folder '{resolved}'.")
 
     # ── Optional but validated fields ────────────────────────────────────────
     formats = plugin.get("formats", [])
